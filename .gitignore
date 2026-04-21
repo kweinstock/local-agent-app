@@ -1,0 +1,27 @@
+# Models (CRITICAL)
+models/
+*.gguf
+
+# Node (root + frontend)
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Data (if large or generated)
+data/
+
+# Env
+.env
+
+# OS
+.DS_Store
+Thumbs.db

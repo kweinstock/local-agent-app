@@ -1,0 +1,246 @@
+/* ── Reset & base ── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #0f0f13;
+    color: #e2e2e8;
+}
+
+/* ── Layout ── */
+.appLayout {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+    width: 240px;
+    min-width: 240px;
+    background: #16161f;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 12px;
+    gap: 6px;
+    overflow-y: auto;
+    border-right: 1px solid #2a2a38;
+}
+
+.sidebar .newChatBtn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px dashed #3a3a52;
+    background: transparent;
+    color: #a0a0b8;
+    font-size: 0.875rem;
+    cursor: pointer;
+    margin-bottom: 8px;
+    transition: all 0.15s ease;
+}
+
+.sidebar .newChatBtn:hover {
+    background: #1e1e2e;
+    color: #e2e2e8;
+    border-color: #5c5cff;
+}
+
+.chatItem {
+    padding: 9px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: #9090a8;
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+.chatItem:hover {
+    background: #1e1e2e;
+    color: #d0d0e0;
+}
+
+.chatItem.active {
+    background: #23234a;
+    color: #a0a8ff;
+    font-weight: 500;
+}
+
+/* ── Main area ── */
+.container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: #0f0f13;
+    min-width: 0;
+}
+
+/* ── Chat messages ── */
+.chat {
+    flex: 1;
+    padding: 32px 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Hide scrollbar but keep scroll */
+.chat::-webkit-scrollbar { width: 6px; }
+.chat::-webkit-scrollbar-track { background: transparent; }
+.chat::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 3px; }
+
+/* ── Message bubbles ── */
+.msg {
+    padding: 12px 16px;
+    border-radius: 14px;
+    max-width: 72%;
+    line-height: 1.65;
+    font-size: 0.9375rem;
+    animation: fadeUp 0.18s ease;
+}
+
+@keyframes fadeUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.msg.user {
+    background: #3c3cff;
+    color: #fff;
+    align-self: flex-end;
+    border-bottom-right-radius: 4px;
+}
+
+.msg.assistant {
+    background: #1c1c28;
+    color: #dcdce8;
+    align-self: flex-start;
+    border-bottom-left-radius: 4px;
+    border: 1px solid #2a2a3a;
+}
+
+/* ── Markdown inside bubbles ── */
+.msg p { margin: 0 0 0.5em; }
+.msg p:last-child { margin-bottom: 0; }
+
+.msg pre {
+    background: #0a0a10;
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    margin: 8px 0;
+    font-size: 0.85rem;
+}
+
+.msg code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.85em;
+}
+
+.msg :not(pre) > code {
+    background: #1a1a2e;
+    border: 1px solid #2e2e48;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.msg ul, .msg ol {
+    margin: 6px 0;
+    padding-left: 1.4em;
+}
+
+.msg li { margin: 3px 0; }
+
+.msg blockquote {
+    border-left: 3px solid #3c3cff;
+    margin: 8px 0;
+    padding: 4px 12px;
+    color: #9090b0;
+}
+
+.msg h1, .msg h2, .msg h3 {
+    margin: 10px 0 4px;
+    color: #e0e0f0;
+}
+
+.msg a { color: #7878ff; }
+
+/* ── Thinking indicator ── */
+.thinking {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    padding: 14px 16px;
+    background: #1c1c28;
+    border: 1px solid #2a2a3a;
+    border-radius: 14px;
+    border-bottom-left-radius: 4px;
+    align-self: flex-start;
+}
+
+.thinking span {
+    width: 7px;
+    height: 7px;
+    background: #5050cc;
+    border-radius: 50%;
+    animation: bounce 1.2s infinite ease-in-out;
+}
+
+.thinking span:nth-child(2) { animation-delay: 0.2s; }
+.thinking span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bounce {
+    0%, 80%, 100% { transform: scale(0.7); opacity: 0.4; }
+    40%            { transform: scale(1);   opacity: 1; }
+}
+
+/* ── Input bar ── */
+.inputBar {
+    display: flex;
+    align-items: center;
+    padding: 16px 24px;
+    border-top: 1px solid #1e1e2c;
+    gap: 10px;
+    background: #0f0f13;
+}
+
+input {
+    flex: 1;
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid #2a2a3a;
+    background: #16161f;
+    color: #e2e2e8;
+    font-size: 0.9375rem;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+input::placeholder { color: #50506a; }
+
+input:focus { border-color: #4444cc; }
+
+button {
+    padding: 11px 20px;
+    border-radius: 10px;
+    border: none;
+    background: #3c3cff;
+    color: white;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    white-space: nowrap;
+}
+
+button:hover  { background: #4f4fff; }
+button:active { transform: scale(0.97); }

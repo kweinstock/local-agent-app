@@ -5,6 +5,7 @@
 
 import subprocess
 import json
+import sys
 from pathlib import Path
 from backend.embeddings import search_all
 
@@ -25,15 +26,17 @@ def read_file(path: str, start_line: int = 0, end_line: int = None) -> str:
 def run_python(code: str):
     try:
         result = subprocess.run(
-            ["python", "-c", code],
-            capture_output=True, text=True, timeout=10
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=10
         )
         output = result.stdout or result.stderr
         return output.strip() or "No output."
     except subprocess.TimeoutExpired:
         return "Error: code timed out after 10 seconds."
     except Exception as e:
-        return f"Error running {code}: {e}"
+        return f"Error running code: {e}"
 
 def search_context(query: str) -> str:
     results = search_all(query, top_k=3)

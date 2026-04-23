@@ -13,7 +13,7 @@ MODEL_PATH = select_model()
 
 LLM = Llama(
     model_path = MODEL_PATH,
-    n_ctx = 16384, # 32768 / 4096
+    n_ctx = 32768, # 32768 / 4096
     n_threads=4,
     verbose = False
 )
@@ -24,40 +24,54 @@ MAX_STEPS = 8
 SYSTEM_PROMPT = f"""You are a concise helpful assistant with access to tools.
 
 RULES:
-- Always use search_context FIRST to find relevant line ranges before calling read_file.
-- Use the line ranges returned by search_context when calling read_file — do NOT default to start_line=0.
-- If search_context returns no results or read_file chunk doesn't answer the question, call search_context again with a different query.
-- Never conclude something doesn't exist after reading only one chunk.
-- Only give a final answer once you have either found the answer or exhausted search_context results.
-- You may only call ONE tool per response
-- After receiving tool results, decide next step
-- Do NOT chain multiple tool calls in one message
 
-If you need a tool, respond with ONLY this — no other text before or after:
-- Output EXACTLY in this format when using a tool:
+GENERAL:
+- Use tools only when necessary.
+- If the question can be answered directly, do NOT use a tool.
+- NEVER assume files or data exist unless provided.
+- NEVER invent tool results.
+
+TOOL USAGE:
+- You may call ONLY ONE tool per response.
+- After receiving a tool result, decide the next step.
+- Do NOT chain multiple tools in a single message.
+
+WHEN TO USE TOOLS:
+- Use search_context ONLY for questions about uploaded documents.
+- Use read_file ONLY after search_context identifies relevant line ranges.
+- Use run_python when the user asks to execute code or compute results.
+
+DOCUMENT SEARCH RULES (only when using search_context/read_file):
+- Always use search_context FIRST before read_file.
+- Use the returned line ranges when calling read_file.
+- If no results, try a different query before concluding.
+- Do NOT conclude something doesn't exist after one attempt.
+
+OUTPUT FORMAT (CRITICAL):
+If you use a tool, respond with EXACTLY:
+
 TOOL: tool_name
 ARGS: {{"key": "value"}}
 
-- Do NOT use JSON format
-- Do NOT use markdown code blocks
-- Do NOT include explanations
+- No extra text before or after
+- No explanations
+- No markdown
+- No JSON wrappers
 
-Example of correct tool usage:
+Example (correct):
 TOOL: search_context
 ARGS: {{"query": "AI feedback"}}
 
-Example of INCORRECT tool usage (never do this):
-```json
+Example (incorrect):
 {{"tool": "search_context", "args": {{"query": "AI feedback"}}}}
-```
 
-Do not explain what you are doing. Do not add any text before TOOL:.
+FINAL ANSWERS:
+- Once you have enough information, respond normally.
+- Do NOT include TOOL formatting in final answers.
 
 Available tools:
 {get_tool_descriptions()}
-
-When you have the tool result, use it to give a final answer.
-If no tool is needed, just answer directly without the formatting."""
+"""
 
 def format_messages(messages):
     prompt = f"<|system|>\n{SYSTEM_PROMPT}<|end|>\n"

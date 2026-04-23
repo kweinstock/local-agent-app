@@ -15,10 +15,14 @@ def select_model():
     model = ""
 
     if ram < 8:
-        model = "phi3-mini-q4.gguf"
+        model = "Phi-3.1-mini-128k-instruct-Q4_K_M.gguf"
     elif ram < 16:
-        model = "phi3-mini-q4.gguf"
+        model = "Phi-3.1-mini-128k-instruct-Q4_K_M.gguf"
     else:
-        model = "phi3-mini-q4.gguf"
+        model = "Phi-3.1-mini-128k-instruct-Q4_K_M.gguf"
 
     return os.path.join(BASE_DIR, "models", model)
+
+def get_embed_model_path():
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(BASE_DIR, "models", "BAAI", "bge-small-en-v1.5")

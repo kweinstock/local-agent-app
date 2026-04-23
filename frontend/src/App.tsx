@@ -3,16 +3,39 @@
 */
 
 import { useState, useEffect } from "react"
-import {type Conversation, loadHistory, type Message, saveHistory, sendMessage} from "./api/chat.ts";
+import {
+    type Conversation,
+    loadHistory,
+    type Message,
+    saveHistory,
+    sendMessage,
+    uploadFile,
+    getUploadedFiles,
+    getStats
+} from "./api/chat.ts";
 
 import MessageBubble from "./components/MessageBubble.tsx";
 import "./App.css"
+import * as React from "react";
 
 export default function App() {
     const [conversations, setConversations] = useState<Conversation[]>([])
     const [activeId, setActiveId] = useState<string | null>(null);
     const [input, setInput] = useState("");
     const [loading, setLoading] = useState(false);
+    const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+    const [showFiles, setShowFiles] = useState(false);
+    const [stats, setStats] = useState<{
+        ram_used_gb: number;
+        ram_total_gb: number;
+    } | null>(null);
+
+    const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const filename = await uploadFile(file);
+        setUploadedFiles(prev => [...prev, filename])
+    }
 
     const createConversation = (): Conversation => ({
         id: crypto.randomUUID(),
@@ -32,7 +55,15 @@ export default function App() {
                 setConversations([first]);
                 setActiveId(first.id);
             }
-        })
+        });
+        getUploadedFiles().then(setUploadedFiles);
+    }, []);
+
+    useEffect(() => {
+        const poll = async () => setStats(await getStats());
+        poll();
+        const id = setInterval(poll, 5000)
+        return () => clearInterval(id);
     }, []);
 
     useEffect(() => {
@@ -117,16 +148,23 @@ export default function App() {
     {/* SIDEBAR */}
     <div className="sidebar">
       <button className="newChatBtn" onClick={newChat}>+ New Chat</button>
-
-      {conversations.map((c) => (
-        <div
-          key={c.id}
-          className={`chatItem ${c.id === activeId ? "active" : ""}`}
-          onClick={() => switchChat(c.id)}
-        >
-          {c.title}
-        </div>
+        {conversations.map((c) => (
+            <div
+                key={c.id}
+                className={`chatItem ${c.id === activeId ? "active" : ""}`}
+                onClick={() => switchChat(c.id)}
+            >
+                {c.title}
+            </div>
       ))}
+        {stats && (
+            <div className="statsPanel">
+                <div className="statRow">
+                    <span className="statLabel">RAM</span>
+                    <span className="statValue">{stats.ram_used_gb} / {stats.ram_total_gb} GB</span>
+                </div>
+            </div>
+        )}
     </div>
 
     {/* MAIN CHAT AREA */}
@@ -143,17 +181,39 @@ export default function App() {
             </div>
         )}
       </div>
-
+        {showFiles && uploadedFiles.length > 0 && (
+            <div className="filesPanel">
+                <div className="filesPanelHeader">Uploaded Files</div>
+                {uploadedFiles.map(f => (
+                    <div key={f} className="fileRow">
+                        <span className="fileIcon">📄</span>
+                        <span className="fileName">{f}</span>
+                    </div>
+                ))}
+            </div>
+        )}
       <div className="inputBar">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSend()}
-          placeholder="Ask Something..."
-        />
+        <label className="uploadBtn" title="Upload file">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M8 1v9M4 4l4-3 4 3M2 12h12v2H2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <input type="file" hidden onChange={handleUpload} />
+        </label>
 
+        {uploadedFiles.length > 0 && (
+            <button className="filesBtn" onClick={() => setShowFiles(p => !p)}>
+                {uploadedFiles.length} file{uploadedFiles.length > 1 ? "s" : ""}
+            </button>
+        )}
+
+        <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            placeholder="Ask Something..."
+        />
         <button onClick={handleSend}>Send</button>
-      </div>
+    </div>
 
     </div>
   </div>

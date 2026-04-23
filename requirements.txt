@@ -1,1 +1,7 @@
+pydantic
+fastapi
+psutil
+faiss-cpu
+numpy
+sentence-transformers
 llama-cpp-python

@@ -43,7 +43,7 @@ Core Chat → Tools → File Handling → Memory → Skills → Hardware Awarene
 
 ---
 
-## Step 4 — Agent + Tools
+## Step 4 — Agent + Tools (Complete)
 - Implement agent loop
 - Add tools:
   - read_file(path)
@@ -53,7 +53,7 @@ Core Chat → Tools → File Handling → Memory → Skills → Hardware Awarene
 
 ---
 
-## Step 5 — File Handling
+## Step 5 — File Handling (Complete)
 - Load files into prompt
 - Handle large files (basic chunking)
 
@@ -61,7 +61,7 @@ Core Chat → Tools → File Handling → Memory → Skills → Hardware Awarene
 
 ---
 
-## Step 6 — Long-Term Memory
+## Step 6 — Long-Term Memory (Complete)
 - Setup FAISS
 - Store important facts
 - Retrieve relevant context

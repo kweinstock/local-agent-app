@@ -6,22 +6,23 @@
 from llama_cpp import Llama
 from backend.config import select_model
 from backend.tools import get_tool_descriptions, call_tool
+from backend.skills import get_relevant_skills, format_skills, build_skill_index
 import json
 import re
 
 MODEL_PATH = select_model()
-
-LLM = Llama(
-    model_path = MODEL_PATH,
-    n_ctx = 32768, # 32768 / 4096
-    n_threads=4,
-    verbose = False
-)
-
 MAX_STEPS = 8
 
+LLM = Llama(
+    model_path=MODEL_PATH,
+    n_ctx=32768,  # 32768 / 4096
+    n_threads=8,
+    n_batch=128,
+    verbose=False
+)
+
 # Prompt formatting
-SYSTEM_PROMPT = f"""You are a concise helpful assistant with access to tools.
+BASE_PROMPT = """You are a concise helpful assistant with access to tools.
 
 RULES:
 
@@ -51,7 +52,7 @@ OUTPUT FORMAT (CRITICAL):
 If you use a tool, respond with EXACTLY:
 
 TOOL: tool_name
-ARGS: {{"key": "value"}}
+ARGS: {"key": "value"}
 
 - No extra text before or after
 - No explanations
@@ -60,35 +61,23 @@ ARGS: {{"key": "value"}}
 
 Example (correct):
 TOOL: search_context
-ARGS: {{"query": "AI feedback"}}
+ARGS: {"query": "AI feedback"}
 
 Example (incorrect):
-{{"tool": "search_context", "args": {{"query": "AI feedback"}}}}
+{"tool": "search_context", "args": {"query": "AI feedback"}}
 
 FINAL ANSWERS:
 - Once you have enough information, respond normally.
-- Do NOT include TOOL formatting in final answers.
+- Do NOT include TOOL formatting in final answers."""
 
-Available tools:
-{get_tool_descriptions()}
-"""
+build_skill_index()
 
-def format_messages(messages):
-    prompt = f"<|system|>\n{SYSTEM_PROMPT}<|end|>\n"
-
-    for m in messages:
-        role = m["role"] if isinstance(m, dict) else m.role
-        content = m["content"] if isinstance(m, dict) else m.content
-
-        if role == "user":
-            prompt += f"<|user|>\n{content}<|end|>\n"
-        elif role == "assistant":
-            prompt += f"<|assistant|>\n{content}<|end|>\n"
-        elif role == "tool":
-            prompt += f"<|user|>\nTool result:\n{content}<|end|>\n"
-
-    prompt += "<|assistant|>\n"
-    return prompt
+def build_system_prompt(query: str) -> str:
+    skills = get_relevant_skills(query)
+    skill_block = format_skills(skills)
+    skill_section = f"\n\n# Relevant Skills\n{skill_block}" if skill_block else ""
+    tool_section = f"\n\nAvailable tools:\n{get_tool_descriptions()}"
+    return BASE_PROMPT + skill_section + tool_section
 
 def llm_call(prompt: str) -> str:
     output = LLM(
@@ -131,30 +120,45 @@ def parse_tool_call(text: str):
 
     return None
 
+def format_messages(messages) -> str:
+    return format_messages_from_dicts([
+        {"role": m.role, "content": m.content} for m in messages
+    ])
+
+def format_messages_from_dicts(messages: list[dict], query: str = "") -> str:
+    system_prompt = build_system_prompt(query)
+    prompt = f"<|system|>\n{system_prompt}<|end|>\n"
+    for m in messages:
+        if m["role"] == "user":
+            prompt += f"<|user|>\n{m['content']}<|end|>\n"
+        elif m["role"] == "assistant":
+            prompt += f"<|assistant|>\n{m['content']}<|end|>\n"
+    prompt += "<|assistant|>\n"
+    return prompt
+
 def generate(messages):
     convo = [{"role": m.role, "content": m.content} for m in messages]
+    query = convo[-1]["content"] if convo else ""
 
     for step in range(MAX_STEPS):
-        response = llm_call(format_messages(messages))
+        prompt = format_messages_from_dicts(convo, query)
+        response = llm_call(prompt)
         print(f"[step {step}] raw response:\n{response}\n")
         tool_call = parse_tool_call(response)
-        print(f"[step {step}] parsed tool call: {tool_call}\n")
+        print(f"[step {step}] parsed: {tool_call}\n")
+
         if not tool_call:
             return response
+
         name, args = tool_call
         try:
             result = call_tool(name, args)
         except Exception as e:
-            result = f"Tool error: {str(e)}"
+            result = f"Tool error: {e}"
 
-        convo.append({
-            "role": "assistant",
-            "content": response
-        })
-        convo.append({
-            "role": "user",
-            "content": f"Tool result for {name}:\n{result}"
-        })
-        messages = [type("Msg", (), m) for m in convo]
+        print(f"[step {step}] tool result:\n{result}\n")
+
+        convo.append({"role": "assistant", "content": response})
+        convo.append({"role": "user", "content": f"Tool result for {name}:\n{result}"})
 
     return "Max steps reached without final answer."

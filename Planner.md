@@ -70,7 +70,7 @@ Core Chat → Tools → File Handling → Memory → Skills → Hardware Awarene
 
 ---
 
-## Step 7 — Dynamic Skills
+## Step 7 — Dynamic Skills (Complete)
 - Create skills folder
 - Tag + retrieve relevant skills
 

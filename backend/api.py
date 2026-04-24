@@ -9,6 +9,7 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from backend.llm import generate
+from backend.skills import build_skill_index
 from typing import List
 from pathlib import Path
 import json
@@ -22,26 +23,32 @@ HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR = Path("data/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+
 def load_conversations():
     if HISTORY_FILE.exists():
         return json.load(open(HISTORY_FILE))
     return []
 
+
 def save_conversations(data):
     HISTORY_FILE.write_text(json.dumps(data, indent=2))
+
 
 # Message schema
 class Message(BaseModel):
     role: str
     content: str
 
+
 # Request schema
 class ChatRequest(BaseModel):
     messages: List[Message]
 
+
 # Response schema
 class ChatResponse(BaseModel):
     response: str
+
 
 # History schema
 class SaveHistoryRequest(BaseModel):
@@ -54,15 +61,18 @@ def chat(req: ChatRequest):
     response = generate(req.messages)
     return ChatResponse(response=response)
 
+
 # /history endpoint
 @app.get("/history")
 def get_history():
     return load_conversations()
 
+
 @app.post("/history")
 def post_history(data: SaveHistoryRequest):
     save_conversations(data.conversations)
     return {"ok": True}
+
 
 # /upload endpoint
 @app.post("/upload")
@@ -73,11 +83,13 @@ def upload_file(file: UploadFile = File(...)):
     index_file(file.filename, str(dest))
     return {"filename": file.filename, "path": str(dest)}
 
+
 @app.get("/uploads")
 def list_uploads():
     if not UPLOAD_DIR.exists():
         return []
     return [f.name for f in UPLOAD_DIR.iterdir() if f.is_file()]
+
 
 # /stats endpoint
 @app.get("/stats")
@@ -89,10 +101,17 @@ def get_stats():
     }
 
 
+# /skills endpoint
+@app.post("/skills/rebuild")
+def rebuild_skills():
+    build_skill_index()
+    return {"ok": True}
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

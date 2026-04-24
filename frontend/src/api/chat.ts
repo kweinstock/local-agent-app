@@ -4,7 +4,7 @@
 
 import axios from "axios";
 
-const API_URL = "http://127.0.0.1:8000";
+const API_URL = "http://100.82.231.125:8000";
 
 export type Message = {
   role: "user" | "assistant";

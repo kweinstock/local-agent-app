@@ -46,7 +46,7 @@ export async function getUploadedFiles(): Promise<string[]> {
     return res.data;
 }
 
-export async function getStats(): Promise<{ ram_used_gb: number; ram_total_gb: number }> {
+export async function getStats(): Promise<{ ram_used_gb: number; ram_total_gb: number; tier: string; n_ctx: number }> {
     const res = await axios.get(`${API_URL}/stats`)
     return res.data;
 }

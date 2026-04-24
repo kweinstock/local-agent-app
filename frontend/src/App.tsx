@@ -28,6 +28,8 @@ export default function App() {
     const [stats, setStats] = useState<{
         ram_used_gb: number;
         ram_total_gb: number;
+        tier: string;
+        n_ctx: number;
     } | null>(null);
 
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -123,6 +125,7 @@ export default function App() {
             );
 
         } catch (err) {
+            console.log("Failed to send message:", err)
              const errorMessage: Message = {
                     role: "assistant",
                     content: "Error connecting to backend.",
@@ -162,6 +165,18 @@ export default function App() {
                 <div className="statRow">
                     <span className="statLabel">RAM</span>
                     <span className="statValue">{stats.ram_used_gb} / {stats.ram_total_gb} GB</span>
+                </div>
+                <div className="statRow">
+                    <span className="statLabel">Tier</span>
+                    <span className="statValue" style={{
+                        color: stats.tier === "high" ? "#3c3cff"
+                             : stats.tier === "medium" ? "#cc8833"
+                             : "#cc3333"
+                    }}>{stats.tier}</span>
+                </div>
+                <div className="statRow">
+                    <span className="statLabel">CTX</span>
+                    <span className="statValue">{stats.n_ctx.toLocaleString()}</span>
                 </div>
             </div>
         )}

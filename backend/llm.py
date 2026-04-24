@@ -4,89 +4,74 @@
 #              llm to generate text
 
 from llama_cpp import Llama
-from backend.config import select_model
 from backend.tools import get_tool_descriptions, call_tool
 from backend.skills import get_relevant_skills, format_skills, build_skill_index
+from backend.config import get_hardware_config
 import json
 import re
 
-MODEL_PATH = select_model()
+HW = get_hardware_config()
 MAX_STEPS = 8
 
 LLM = Llama(
-    model_path=MODEL_PATH,
-    n_ctx=32768,  # 32768 / 4096
-    n_threads=8,
-    n_batch=128,
+    model_path=HW["model_path"],
+    n_ctx=HW["n_ctx"],  # 32768 / 4096
+    n_threads=HW["n_threads"],
+    n_batch=HW["n_batch"],
     verbose=False
 )
 
 # Prompt formatting
-BASE_PROMPT = """You are a concise helpful assistant with access to tools.
+BASE_PROMPT = """You are a tool-calling agent. You have access to tools and must use them when needed.
 
-RULES:
-
-GENERAL:
-- Use tools only when necessary.
-- If the question can be answered directly, do NOT use a tool.
-- NEVER assume files or data exist unless provided.
-- NEVER invent tool results.
-
-TOOL USAGE:
-- You may call ONLY ONE tool per response.
-- After receiving a tool result, decide the next step.
-- Do NOT chain multiple tools in a single message.
-
-WHEN TO USE TOOLS:
-- Use search_context ONLY for questions about uploaded documents.
-- Use read_file ONLY after search_context identifies relevant line ranges.
-- Use run_python when the user asks to execute code or compute results.
-
-DOCUMENT SEARCH RULES (only when using search_context/read_file):
-- Always use search_context FIRST before read_file.
-- Use the returned line ranges when calling read_file.
-- If no results, try a different query before concluding.
-- Do NOT conclude something doesn't exist after one attempt.
-
-OUTPUT FORMAT (CRITICAL):
-If you use a tool, respond with EXACTLY:
-
-TOOL: tool_name
+## Output rules
+When calling a tool you MUST output ONLY these two lines, nothing else:
+TOOL: <name>
 ARGS: {"key": "value"}
 
-- No extra text before or after
-- No explanations
-- No markdown
-- No JSON wrappers
+No preamble. No explanation. No code blocks. No numbering. Just those two lines.
 
-Example (correct):
-TOOL: search_context
-ARGS: {"query": "AI feedback"}
+When giving a final answer, output plain text only. No TOOL: lines.
 
-Example (incorrect):
-{"tool": "search_context", "args": {"query": "AI feedback"}}
-
-FINAL ANSWERS:
-- Once you have enough information, respond normally.
-- Do NOT include TOOL formatting in final answers."""
+## Tool rules
+- Call ONE tool per turn.
+- For uploaded files: always call search_context first, then read_file with the returned line range.
+- For running code: call run_python with the code as a string.
+- Never describe what you would do. Do it.
+- Never invent tool results."""
 
 build_skill_index()
 
+
 def build_system_prompt(query: str) -> str:
+    # Skills
     skills = get_relevant_skills(query)
     skill_block = format_skills(skills)
-    skill_section = f"\n\n# Relevant Skills\n{skill_block}" if skill_block else ""
-    tool_section = f"\n\nAvailable tools:\n{get_tool_descriptions()}"
+    skill_section = f"\n\n## Skills\n{skill_block}" if skill_block else ""
+
+    # Tools
+    tool_section = f"\n\n## Available tools:\n{get_tool_descriptions()}"
+
     return BASE_PROMPT + skill_section + tool_section
 
-def llm_call(prompt: str) -> str:
-    output = LLM(
-        prompt,
-        max_tokens=512,
-        temperature=0.5,
-        stop=["<|end|>", "<|user|>"]
-    )
-    return output["choices"][0]["text"].strip()
+
+def format_messages(messages) -> str:
+    return format_messages_from_dicts([
+        {"role": m.role, "content": m.content} for m in messages
+    ])
+
+
+def format_messages_from_dicts(messages: list[dict], query: str = "") -> str:
+    system = build_system_prompt(query)
+    prompt = f"<|system|>\n{system}<|end|>\n"
+    for m in messages:
+        if m["role"] == "user":
+            prompt += f"<|user|>\n{m['content']}<|end|>\n"
+        elif m["role"] == "assistant":
+            prompt += f"<|assistant|>\n{m['content']}<|end|>\n"
+    prompt += "<|assistant|>\n"
+    return prompt
+
 
 def parse_tool_call(text: str):
     # Remove markdown fences
@@ -120,21 +105,16 @@ def parse_tool_call(text: str):
 
     return None
 
-def format_messages(messages) -> str:
-    return format_messages_from_dicts([
-        {"role": m.role, "content": m.content} for m in messages
-    ])
 
-def format_messages_from_dicts(messages: list[dict], query: str = "") -> str:
-    system_prompt = build_system_prompt(query)
-    prompt = f"<|system|>\n{system_prompt}<|end|>\n"
-    for m in messages:
-        if m["role"] == "user":
-            prompt += f"<|user|>\n{m['content']}<|end|>\n"
-        elif m["role"] == "assistant":
-            prompt += f"<|assistant|>\n{m['content']}<|end|>\n"
-    prompt += "<|assistant|>\n"
-    return prompt
+def llm_call(prompt: str) -> str:
+    output = LLM(
+        prompt,
+        max_tokens=512,
+        temperature=0.5,
+        stop=["<|end|>", "<|user|>"]
+    )
+    return output["choices"][0]["text"].strip()
+
 
 def generate(messages):
     convo = [{"role": m.role, "content": m.content} for m in messages]

@@ -11,6 +11,7 @@ from backend.embeddings import search_all
 
 UPLOAD_DIR = Path("data/uploads")
 
+
 # Tool implementations
 def read_file(path: str, start_line: int = 0, end_line: int = None) -> str:
     try:
@@ -22,6 +23,7 @@ def read_file(path: str, start_line: int = 0, end_line: int = None) -> str:
         return f"[Lines {start_line}-{end_line or total} of {total}]\n{result}"
     except Exception as e:
         return f"Error reading {path}: {e}"
+
 
 def run_python(code: str):
     try:
@@ -38,14 +40,19 @@ def run_python(code: str):
     except Exception as e:
         return f"Error running code: {e}"
 
+
 def search_context(query: str) -> str:
     results = search_all(query, top_k=3)
     if not results:
-        return "No relevant context found."
+        return "No relevant context found in uploaded files."
     out = []
     for r in results:
-        out.append(f"[{Path(r['path']).name} lines {r['start']}-{r['end']}]\n{r['text']}")
+        filename = Path(r["path"]).name
+        out.append(
+            f"File: {filename} | Lines {r['start']}-{r['end']}\n{r['text']}"
+        )
     return "\n\n---\n\n".join(out)
+
 
 TOOLS = {
     "read_file": {
@@ -70,8 +77,10 @@ TOOLS = {
     },
 }
 
+
 def get_tool_descriptions() -> str:
     return "\n".join(f"- {name}: {meta['description']}" for name, meta in TOOLS.items())
+
 
 def call_tool(name: str, args: dict):
     if name not in TOOLS:

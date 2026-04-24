@@ -14,6 +14,7 @@ from typing import List
 from pathlib import Path
 import json
 from backend.embeddings import index_file
+from backend.config import get_hardware_config
 
 app = FastAPI()
 
@@ -95,9 +96,12 @@ def list_uploads():
 @app.get("/stats")
 def get_stats():
     mem = psutil.virtual_memory()
+    hw = get_hardware_config()
     return {
         "ram_used_gb": round(mem.used / (1024 ** 3), 2),
         "ram_total_gb": round(mem.total / (1024 ** 3), 2),
+        "tier": hw["tier"],
+        "n_ctx": hw["n_ctx"],
     }
 
 

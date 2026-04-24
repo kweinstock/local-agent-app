@@ -6,23 +6,57 @@
 import psutil
 import os
 
-def get_ram_gb():
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+TIER_CONFIG = {
+    "low": {
+        "model":    "Phi-3.1-mini-128k-instruct-Q4_K_M.gguf",
+        "n_ctx":    2048,
+        "n_batch":  64,
+    },
+    "medium": {
+        "model":    "Phi-3.1-mini-128k-instruct-Q4_K_M.gguf",
+        "n_ctx":    8192,
+        "n_batch":  128,
+    },
+    "high": {
+        "model":    "Phi-3.1-mini-128k-instruct-Q4_K_M.gguf",
+        "n_ctx":    32768,
+        "n_batch":  256,
+    },
+}
+
+
+def get_ram_gb() -> float:
     return psutil.virtual_memory().total / (1024 ** 3)
 
-def select_model():
+
+def get_cpu_cores() -> int:
+    return psutil.cpu_count(logical=False) or 2
+
+
+def get_tier() -> str:
     ram = get_ram_gb()
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model = ""
-
     if ram < 8:
-        model = "Phi-3.1-mini-128k-instruct-Q4_K_M.gguf"
+        return "low"
     elif ram < 16:
-        model = "Phi-3.1-mini-128k-instruct-Q4_K_M.gguf"
+        return "medium"
     else:
-        model = "Phi-3.1-mini-128k-instruct-Q4_K_M.gguf"
+        return "high"
 
-    return os.path.join(BASE_DIR, "models", model)
+
+def get_hardware_config() -> dict:
+    tier = get_tier()
+    cfg = TIER_CONFIG[tier].copy()
+    cfg["n_threads"] = max(2, get_cpu_cores() - 1)  # Leaved one core free
+    cfg["model_path"] = os.path.join(BASE_DIR, "models", cfg.pop("model"))
+    cfg["tier"] = tier
+    return cfg
+
+
+def select_model():
+    return get_hardware_config()["model_path"]
+
 
 def get_embed_model_path():
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(BASE_DIR, "models", "BAAI", "bge-small-en-v1.5")

@@ -17,6 +17,7 @@ VECTOR_DIR.mkdir(parents=True, exist_ok=True)
 CHUNK_SIZE = 40
 CHUNK_OVERLAP = 5
 
+
 def chunk_file(path: str) -> list[dict]:
     lines = Path(path).read_text().splitlines()
     chunks = []
@@ -32,8 +33,10 @@ def chunk_file(path: str) -> list[dict]:
         i += CHUNK_SIZE - CHUNK_OVERLAP
     return chunks
 
+
 def embed(texts: list[str]) -> np.ndarray:
     return EMBED_MODEL.encode(texts, convert_to_numpy=True).astype("float32")
+
 
 def index_file(filename: str, filepath: str):
     chunks = chunk_file(filepath)
@@ -48,6 +51,7 @@ def index_file(filename: str, filepath: str):
     stem = Path(filename).stem
     faiss.write_index(index, str(VECTOR_DIR / f"{stem}.index"))
     (VECTOR_DIR / f"{stem}.meta.json").write_text(json.dumps(chunks, indent=2))
+
 
 def search(query: str, filename: str, top_k: int = 3) -> list[dict]:
     stem = Path(filename).stem
@@ -65,6 +69,7 @@ def search(query: str, filename: str, top_k: int = 3) -> list[dict]:
 
     return [chunks[i] for i in indices[0] if i < len(chunks)]
 
+
 def search_all(query: str, top_k: int = 3) -> list[dict]:
     all_results = []
     for index_file_path in VECTOR_DIR.glob("*.index"):
@@ -74,7 +79,7 @@ def search_all(query: str, top_k: int = 3) -> list[dict]:
             continue
 
         index = faiss.read_index(str(index_file_path))
-        chunks = json.load(open(meta_path.read_text()))
+        chunks = json.loads(meta_path.read_text())
 
         q_vec = embed([query])
         distances, indices = index.search(q_vec, top_k)
@@ -85,4 +90,3 @@ def search_all(query: str, top_k: int = 3) -> list[dict]:
 
     all_results.sort(key=lambda x: x["score"])
     return all_results[:top_k]
-

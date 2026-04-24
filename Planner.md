@@ -78,7 +78,7 @@ Core Chat → Tools → File Handling → Memory → Skills → Hardware Awarene
 
 ---
 
-## Step 8 — Hardware-Aware Models
+## Step 8 — Hardware-Aware Models (Complete)
 - Detect RAM/CPU
 - Assign tier (low/medium/high)
 - Select model accordingly
@@ -87,7 +87,7 @@ Core Chat → Tools → File Handling → Memory → Skills → Hardware Awarene
 
 ---
 
-## Step 9 — Prompt Builder
+## Step 9 — Prompt Builder (Complete)
 Structure:
 SYSTEM
 SKILLS
@@ -102,7 +102,6 @@ USER
 - Streaming responses
 - Better UI
 - Error handling
-- Settings (performance modes)
 
 ---
 

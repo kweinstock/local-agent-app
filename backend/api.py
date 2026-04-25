@@ -5,16 +5,17 @@
 
 import shutil
 import psutil
+import json
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from backend.llm import generate
+from backend.llm import generate_with_stream, llm_stream
 from backend.skills import build_skill_index
-from typing import List
-from pathlib import Path
-import json
 from backend.embeddings import index_file
 from backend.config import get_hardware_config
+from typing import List
+from pathlib import Path
 
 app = FastAPI()
 
@@ -35,35 +36,33 @@ def save_conversations(data):
     HISTORY_FILE.write_text(json.dumps(data, indent=2))
 
 
-# Message schema
 class Message(BaseModel):
     role: str
     content: str
 
 
-# Request schema
 class ChatRequest(BaseModel):
     messages: List[Message]
 
 
-# Response schema
-class ChatResponse(BaseModel):
-    response: str
-
-
-# History schema
 class SaveHistoryRequest(BaseModel):
     conversations: list
 
 
-# /chat endpoint
-@app.post("/chat", response_model=ChatResponse)
+@app.post("/chat")
 def chat(req: ChatRequest):
-    response = generate(req.messages)
-    return ChatResponse(response=response)
+    def stream():
+        try:
+            final_prompt, _ = generate_with_stream(req.messages)
+            for token in llm_stream(final_prompt):
+                yield f"data: {json.dumps({'token': token})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
-# /history endpoint
 @app.get("/history")
 def get_history():
     return load_conversations()
@@ -75,7 +74,6 @@ def post_history(data: SaveHistoryRequest):
     return {"ok": True}
 
 
-# /upload endpoint
 @app.post("/upload")
 def upload_file(file: UploadFile = File(...)):
     dest = UPLOAD_DIR / file.filename
@@ -92,7 +90,22 @@ def list_uploads():
     return [f.name for f in UPLOAD_DIR.iterdir() if f.is_file()]
 
 
-# /stats endpoint
+@app.delete("/uploads/{filename}")
+def delete_upload(filename: str):
+    file_path = UPLOAD_DIR / filename
+    if not file_path.exists():
+        return {"ok": False, "error": "File not found"}
+    file_path.unlink()
+
+    stem = Path(filename).stem
+    index_path = Path("data/vectors") / f"{stem}.index"
+    meta_path = Path("data/vectors") / f"{stem}.meta.json"
+    if index_path.exists(): index_path.unlink()
+    if meta_path.exists(): meta_path.unlink()
+
+    return {"ok": True}
+
+
 @app.get("/stats")
 def get_stats():
     mem = psutil.virtual_memory()
@@ -105,7 +118,6 @@ def get_stats():
     }
 
 
-# /skills endpoint
 @app.post("/skills/rebuild")
 def rebuild_skills():
     build_skill_index()

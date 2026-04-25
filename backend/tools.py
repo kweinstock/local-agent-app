@@ -65,7 +65,13 @@ TOOLS = {
     },
     "run_python": {
         "fn": run_python,
-        "description": "Execute Python code and return stdout. Args: code (string)",
+        "description": (
+            'Execute Python code and return stdout. '
+            'Args: {"code": "string"}. '
+            'IMPORTANT: always use print() to output results, '
+            'return values are not shown. '
+            'Example: TOOL: run_python\nARGS: {"code": "print(sorted([3,1,2]))"}'
+        ),
     },
     "search_context": {
         "fn": search_context,

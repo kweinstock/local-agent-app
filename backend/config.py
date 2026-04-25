@@ -10,19 +10,19 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 TIER_CONFIG = {
     "low": {
-        "model":    "Phi-3.1-mini-128k-instruct-Q4_K_M.gguf",
-        "n_ctx":    2048,
-        "n_batch":  64,
+        "model":   "qwen-2.5-3B-instruct-gguf-Q4-K-M.gguf",
+        "n_ctx":   4096,
+        "n_batch": 64,
     },
     "medium": {
-        "model":    "Phi-3.1-mini-128k-instruct-Q4_K_M.gguf",
-        "n_ctx":    8192,
-        "n_batch":  128,
+        "model":   "qwen-2.5-7B-instruct-gguf-Q4-K-M.gguf",
+        "n_ctx":   8192,
+        "n_batch": 128,
     },
     "high": {
-        "model":    "Phi-3.1-mini-128k-instruct-Q4_K_M.gguf",
-        "n_ctx":    32768,
-        "n_batch":  256,
+        "model":   "qwen-2.5-14B-instruct-1m-gguf-Q4-K-M.gguf",
+        "n_ctx":   16384,
+        "n_batch": 256,
     },
 }
 

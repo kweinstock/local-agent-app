@@ -12,6 +12,7 @@ import re
 
 HW = get_hardware_config()
 MAX_STEPS = 8
+MAX_HISTORY = 8
 
 LLM = Llama(
     model_path=HW["model_path"],
@@ -25,6 +26,9 @@ LLM = Llama(
 BASE_PROMPT = """You are a tool-calling agent. You have access to tools and must use them when needed.
 
 ## Output rules
+- If calling a tool: output ONLY the two TOOL/ARGS lines. Nothing else.
+- If giving a final answer: output plain text only. No TOOL lines.
+- Never mix explanation and tool calls in the same response.
 When calling a tool you MUST output ONLY these two lines, nothing else:
 TOOL: <name>
 ARGS: {"key": "value"}
@@ -46,6 +50,7 @@ build_skill_index()
 def build_system_prompt(query: str) -> str:
     # Skills
     skills = get_relevant_skills(query)
+    print(f"[skills] matched: {[s['name'] for s in skills]}")
     skill_block = format_skills(skills)
     skill_section = f"\n\n## Skills\n{skill_block}" if skill_block else ""
 
@@ -63,13 +68,13 @@ def format_messages(messages) -> str:
 
 def format_messages_from_dicts(messages: list[dict], query: str = "") -> str:
     system = build_system_prompt(query)
-    prompt = f"<|system|>\n{system}<|end|>\n"
+    prompt = f"<|im_start|>system\n{system}<|im_end|>\n"
     for m in messages:
         if m["role"] == "user":
-            prompt += f"<|user|>\n{m['content']}<|end|>\n"
+            prompt += f"<|im_start|>user\n{m['content']}<|im_end|>\n"
         elif m["role"] == "assistant":
-            prompt += f"<|assistant|>\n{m['content']}<|end|>\n"
-    prompt += "<|assistant|>\n"
+            prompt += f"<|im_start|>assistant\n{m['content']}<|im_end|>\n"
+    prompt += "<|im_start|>assistant\n"
     return prompt
 
 
@@ -106,18 +111,38 @@ def parse_tool_call(text: str):
     return None
 
 
-def llm_call(prompt: str) -> str:
+def llm_call(prompt: str, max_tokens: int = 512) -> str:
     output = LLM(
         prompt,
-        max_tokens=512,
-        temperature=0.5,
-        stop=["<|end|>", "<|user|>"]
+        max_tokens=max_tokens,
+        temperature=0.3,
+        repeat_penalty=1.15,
+        stop=["<|im_end|>", "<|im_start|>"]
     )
-    return output["choices"][0]["text"].strip()
+    choice = output["choices"][0]
+    if choice["finish_reason"] == "length":
+        print("[warning] response hit max_tokens — may be truncated")
+    return choice["text"].strip()
+
+
+def llm_stream(prompt: str):
+    stream = LLM(
+        prompt,
+        max_tokens=512,
+        temperature=0.3,
+        repeat_penalty=1.15,
+        stop=["<|im_end|>", "<|im_start|>"],
+        stream=True,
+    )
+    for chunk in stream:
+        token = chunk["choices"][0]["text"]
+        if token:
+            yield token
 
 
 def generate(messages):
     convo = [{"role": m.role, "content": m.content} for m in messages]
+    convo = convo[-MAX_HISTORY:]
     query = convo[-1]["content"] if convo else ""
 
     for step in range(MAX_STEPS):
@@ -142,3 +167,32 @@ def generate(messages):
         convo.append({"role": "user", "content": f"Tool result for {name}:\n{result}"})
 
     return "Max steps reached without final answer."
+
+
+def generate_with_stream(messages):
+    """Runs the agent loop, returns (final_prompt, convo) for streaming the last step."""
+    convo = [{"role": m.role, "content": m.content} for m in messages]
+    convo = convo[-MAX_HISTORY:]
+    query = convo[-1]["content"] if convo else ""
+
+    for step in range(MAX_STEPS):
+        prompt = format_messages_from_dicts(convo, query)
+        response = llm_call(prompt, max_tokens=128)
+        print(f"[step {step}] raw: {response}")
+        tool_call = parse_tool_call(response)
+
+        if not tool_call:
+            # This is the final answer — return prompt for streaming
+            return prompt, True
+
+        name, args = tool_call
+        try:
+            result = call_tool(name, args)
+        except Exception as e:
+            result = f"Tool error: {e}"
+
+        print(f"[step {step}] tool result: {result}")
+        convo.append({"role": "assistant", "content": response})
+        convo.append({"role": "user", "content": f"Tool result for {name}:\n{result}"})
+
+    return format_messages_from_dicts(convo, query), False

@@ -5,3 +5,4 @@
 - Note security issues first (hardcoded secrets, SQL injection, path traversal)
 - Distinguish must-fix from nice-to-have
 - Keep feedback concise and actionable
+- If reviewing an uploaded file, use search_context to find it first

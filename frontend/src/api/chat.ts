@@ -1,4 +1,5 @@
-/* File: chat.ts
+/*
+ * File: chat.ts
  * Name: Keagan Weinstock
 */
 
@@ -17,12 +18,39 @@ export type Conversation = {
     messages: Message[];
 }
 
-export async function sendMessage(messages: Message[]) {
-  const res = await axios.post(`${API_URL}/chat`, {
-    messages,
-  });
+export async function sendMessage(
+    messages: Message[],
+    onToken: (token: string) => void
+): Promise<void> {
+    const res = await fetch(`${API_URL}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages }),
+    });
 
-  return res.data.response;
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value);
+        for (const line of text.split("\n")) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6);
+            if (data === "[DONE]") return;
+            try {
+                const parsed = JSON.parse(data);
+                if (parsed.error) {
+                    onToken(`\n\nError: ${parsed.error}`);
+                    return;
+                }
+                if (parsed.token) onToken(parsed.token);
+            } catch {
+                // malformed chunk, skip
+            }
+        }
+    }
 }
 
 export async function loadHistory() {
@@ -31,14 +59,14 @@ export async function loadHistory() {
 }
 
 export async function saveHistory(conversations: Conversation[]) {
-    await axios.post(`${API_URL}/history`, { conversations })
+    await axios.post(`${API_URL}/history`, { conversations });
 }
 
 export async function uploadFile(file: File): Promise<string> {
-    const form = new FormData()
-    form.append("file", file)
-    const res = await axios.post(`${API_URL}/upload`, form)
-    return res.data.filename
+    const form = new FormData();
+    form.append("file", file);
+    const res = await axios.post(`${API_URL}/upload`, form);
+    return res.data.filename;
 }
 
 export async function getUploadedFiles(): Promise<string[]> {
@@ -46,7 +74,16 @@ export async function getUploadedFiles(): Promise<string[]> {
     return res.data;
 }
 
-export async function getStats(): Promise<{ ram_used_gb: number; ram_total_gb: number; tier: string; n_ctx: number }> {
-    const res = await axios.get(`${API_URL}/stats`)
+export async function deleteFile(filename: string): Promise<void> {
+    await axios.delete(`${API_URL}/uploads/${filename}`)
+}
+
+export async function getStats(): Promise<{
+    ram_used_gb: number;
+    ram_total_gb: number;
+    tier: string;
+    n_ctx: number;
+}> {
+    const res = await axios.get(`${API_URL}/stats`);
     return res.data;
 }

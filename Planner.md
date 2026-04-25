@@ -1,122 +1,351 @@
-# Local LLM Agent — Phase 1 Planner
+# Local LLM Agent — Phase 2 Planner (Performance → Claude-Like Behavior)
 
-## Overview
-Build a fully offline, low-memory LLM agent with:
-- Chat + UI
-- Tool usage (code + files)
-- Long-term memory
-- Dynamic skills
-- Hardware-aware model selection
+## Goal
+
+1. **Make the system fast enough to be usable daily**
+2. **Then upgrade behavior to feel like Claude**
 
 ---
 
-## Build Order
-Core Chat → Tools → File Handling → Memory → Skills → Hardware Awareness → Polish
+# Phase 2A — Performance First (DO THIS BEFORE ANYTHING ELSE)
+
+## 1. Enable GPU Acceleration (BIGGEST WIN)
+
+You have an RTX 4060 — not using it is your bottleneck.
+
+### Steps
+
+* Rebuild/install `llama.cpp` with CUDA:
+
+  ```
+  cmake -DLLAMA_CUBLAS=ON ...
+  ```
+* Use `--n-gpu-layers` (or equivalent in Python wrapper)
+
+### Target
+
+* Offload **20–40 layers** to GPU (tune this)
+* Monitor VRAM usage (~8GB usable on 4060)
+
+### Result
+
+* 2x–10x speedup depending on model
 
 ---
 
-## Step 1 — Local Model Setup (Complete)
-- Install llama.cpp
-- Download GGUF model (Phi-3 Mini Q4 recommended)
-- Run model via CLI
-- Wrap in Python
+## 2. Tune Model Size vs Speed (Don’t Overkill)
 
-**Goal:** Model responds locally
+Your current:
 
----
+```
+14B @ Q4 + CPU = slow
+```
 
-## Step 2 — Backend API (FastAPI) (Complete)
-- Create `/chat` endpoint
-- Connect to model wrapper
+### Strategy
 
-**Goal:** API returns responses
+* Use **7B as default**
+* Use **14B only when needed**
 
----
+### Add dynamic routing:
 
-## Step 3 — Chat UI (Complete)
-- Simple React interface
-- Input + chat history
-- Create `/history` endpoint
-- Markdown rendering
+```python
+if task == "simple":
+    model = "7B"
+else:
+    model = "14B"
+```
 
-**Goal:** Usable chat interface
+### Result
 
----
-
-## Step 4 — Agent + Tools (Complete)
-- Implement agent loop
-- Add tools:
-  - read_file(path)
-  - run_python(code)
-
-**Goal:** Model can execute actions
+* Massive latency reduction
+* Keeps quality when needed
 
 ---
 
-## Step 5 — File Handling (Complete)
-- Load files into prompt
-- Handle large files (basic chunking)
+## 3. Optimize n_batch + n_ctx
 
-**Goal:** Code understanding + editing
+### Current issue
 
----
+* Large `n_ctx` slows everything
+* Large `n_batch` can bottleneck CPU/GPU sync
 
-## Step 6 — Long-Term Memory (Complete)
-- Setup FAISS
-- Store important facts
-- Retrieve relevant context
+### Fix
 
-**Goal:** Persistent memory
+* Start with:
 
----
+  ```
+  n_ctx: 4096–8192
+  n_batch: 64–128
+  ```
+* Only increase when needed
 
-## Step 7 — Dynamic Skills (Complete)
-- Create skills folder
-- Tag + retrieve relevant skills
+### Rule
 
-**Goal:** Smarter responses without bigger models
+> Bigger ≠ better if you don’t use it
 
 ---
 
-## Step 8 — Hardware-Aware Models (Complete)
-- Detect RAM/CPU
-- Assign tier (low/medium/high)
-- Select model accordingly
+## 4. Reduce Prompt Size (Hidden Performance Killer)
 
-**Goal:** Runs efficiently on any machine
+You currently stack:
 
----
+* SYSTEM
+* SKILLS
+* MEMORY
+* USER
 
-## Step 9 — Prompt Builder (Complete)
-Structure:
-SYSTEM
-SKILLS
-MEMORY
-USER
+This grows fast.
 
-**Goal:** Stable, consistent outputs
+### Fix
 
----
+* Trim aggressively:
 
-## Step 10 — Polish
-- Streaming responses
-- Better UI
-- Error handling
+  * Limit memory results (top 3–5)
+  * Limit skills (only relevant ones)
+* Add token budgeting:
+
+```python
+max_prompt_tokens = 3000
+```
 
 ---
 
-## Notes
-- Keep everything offline
-- Keep prompts small
-- Don’t overengineer early
-- Test each step before moving on
+## 5. Cache Everything You Can
+
+### Add caching for:
+
+* File reads
+* Vector search results
+* Previous tool outputs
+
+### Example
+
+```python
+if query in cache:
+    return cache[query]
+```
 
 ---
 
-## Final Result
-- Local coding assistant
-- File-aware agent
-- Tool-using system
-- Memory + skills enabled
-- Hardware adaptive
+## 6. Streaming + Early Exit
 
+### Improve UX + speed perception:
+
+* Stream tokens immediately
+* Allow early stopping if answer is “good enough”
+
+---
+
+## 7. Parallelize Where Possible
+
+### Easy wins:
+
+* Run FAISS search async
+* Preload files while model thinks
+
+---
+
+## 8. Model Settings Tuning
+
+Start with:
+
+```
+temperature: 0.2–0.4
+top_p: 0.9
+repeat_penalty: 1.1–1.2
+```
+
+Lower temperature = faster + more stable
+
+---
+
+## Phase 2A Result
+
+* GPU utilized
+* 2–10x faster responses
+* Lower latency agent loop
+
+---
+
+# Phase 2B — Claude-Like Behavior (After Speed is Fixed)
+
+## 1. Structured Tool Calling (CRITICAL)
+
+### Replace:
+
+```
+TOOL: run_python
+ARGS: ...
+```
+
+### With:
+
+```json
+{
+  "tool": "run_python",
+  "args": {...}
+}
+```
+
+### Add:
+
+* validation
+* retry on failure
+
+---
+
+## 2. Proper Agent Loop (Think → Act → Observe)
+
+### Upgrade loop:
+
+```python
+for step in range(max_steps):
+    response = model(prompt)
+
+    if tool_call:
+        result = run_tool(...)
+        prompt += f"TOOL RESULT:\n{result}"
+    else:
+        break
+```
+
+### Add:
+
+* max steps (3–5)
+* tool reflection
+
+---
+
+## 3. Code Execution Feedback Loop
+
+### Behavior:
+
+1. Generate code
+2. Run code
+3. Capture errors
+4. Fix automatically
+
+---
+
+## 4. Memory That Feels Smart
+
+### Add layers:
+
+* short-term (recent messages)
+* long-term (FAISS)
+* summarized memory
+
+### Add:
+
+* auto summarization every N turns
+* importance scoring
+
+---
+
+## 5. Better File Understanding
+
+### Upgrade from:
+
+* search → read
+
+### To:
+
+* search → expand → follow imports → build context
+
+---
+
+## 6. Strong System Prompt (Claude Style)
+
+### Add rules:
+
+* Prefer tools over guessing
+* Never hallucinate file contents
+* Explain actions briefly
+* Think step-by-step when needed
+
+---
+
+## 7. Planning Mode
+
+### Example:
+
+```
+PLAN:
+1. Search files
+2. Read code
+3. Modify function
+4. Test
+```
+
+Then execute step-by-step
+
+---
+
+## 8. Self-Critique / Self-Repair
+
+### Add optional second pass:
+
+```python
+critique = model("Critique the response")
+fix = model("Improve based on critique")
+```
+
+---
+
+## 9. Tool Transparency (UX)
+
+Show:
+
+```
+🔧 Reading file: app.py
+🐍 Running Python code
+```
+
+---
+
+## 10. Stability Over Cleverness
+
+Claude feels good because:
+
+* it’s consistent
+* it doesn’t break flow
+* it recovers from errors
+
+Focus on:
+
+* fewer failures
+* cleaner outputs
+* predictable behavior
+
+---
+
+# Final Priority Order
+
+## Do FIRST (Performance)
+
+1. GPU acceleration (CUDA + n_gpu_layers)
+2. Use 7B by default, 14B selectively
+3. Reduce prompt size
+4. Tune n_ctx + n_batch
+5. Add caching
+
+## THEN (Behavior)
+
+6. Structured tool calling
+7. Proper agent loop
+8. Code execution feedback
+9. Memory improvements
+10. Prompt + planning upgrades
+
+---
+
+# End State
+
+You’ll have:
+
+* Fast local assistant (usable daily)
+* Tool-using coding agent
+* Memory-aware system
+* Claude-like reasoning behavior
+
+---

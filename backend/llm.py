@@ -19,7 +19,8 @@ LLM = Llama(
     n_ctx=HW["n_ctx"],  # 32768 / 4096
     n_threads=HW["n_threads"],
     n_batch=HW["n_batch"],
-    verbose=False
+    n_gpu_layers=1,
+    verbose=True
 )
 
 # Prompt formatting

@@ -13,7 +13,7 @@ import re
 
 HW = get_hardware_config()
 MAX_STEPS = 8
-MAX_HISTORY = 8
+MAX_HISTORY = 20
 
 LLM = Llama(
     model_path=HW["model_path"],
@@ -29,6 +29,8 @@ BASE_PROMPT = """You are a tool-calling agent. You have access to tools and must
 
 ## Output rules
 - If calling a tool: output ONLY the two TOOL/ARGS lines. Nothing else.
+- For complex tasks, think through the steps before acting.
+- After using a tool, briefly explain what you found before continuing.
 - If giving a final answer: output plain text only. No TOOL lines.
 - Never mix explanation and tool calls in the same response.
 When calling a tool you MUST output ONLY these two lines, nothing else:
@@ -169,7 +171,16 @@ def generate(messages):
         except Exception as e:
             result = f"Tool error: {e}"
 
+        if any(result.startswith(p) for p in ("Tool error:", "Error", "Unknown tool")):
+            result = (
+                f"{result}\n"
+                f"Reflect: wrong tool or args? Try a different approach."
+            )
+
         print(f"[step {step}] tool result:\n{result}\n")
+
+        if step == MAX_STEPS - 2:
+            convo.append({"role": "user", "content": "1 step remaining. Give your final answer now."})
 
         convo.append({"role": "assistant", "content": response})
         convo.append({"role": "user", "content": f"Tool result for {name}:\n{result}"})
@@ -189,10 +200,12 @@ def generate_with_stream(messages):
         tool_call = parse_tool_call(response)
 
         if not tool_call:
-            # This is the final answer — return prompt for streaming
-            return prompt, True
+            yield {"type": "final", "prompt": prompt}
+            return
 
         name, args = tool_call
+        yield {"type": "tool", "name": name, "args": args}
+
         try:
             result = call_tool(name, args)
         except Exception as e:
@@ -202,4 +215,4 @@ def generate_with_stream(messages):
         convo.append({"role": "assistant", "content": response})
         convo.append({"role": "user", "content": f"Tool result for {name}:\n{result}"})
 
-    return format_messages_from_dicts(convo, query), False
+    yield {"type": "final", "prompt": format_messages_from_dicts(convo, query)}

@@ -26,6 +26,7 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
     const [showFiles, setShowFiles] = useState(false);
+    const [toolStatus, setToolStatus] = useState<string | null>(null);
     const [stats, setStats] = useState<{
         ram_used_gb: number;
         ram_total_gb: number;
@@ -56,6 +57,8 @@ export default function App() {
     const activeConversation = conversations.find(c => c.id === activeId) ?? null;
     const lastMsg = activeConversation?.messages.at(-1)
     const isStreaming = loading && lastMsg?.role === "assistant" && lastMsg?.content === "";
+    const showTool = toolStatus && loading;
+    const showThinking = isStreaming && !toolStatus;
 
     useEffect(() => {
         loadHistory().then((saved) => {
@@ -133,12 +136,20 @@ export default function App() {
         try {
             await sendMessage(updatedConversation.messages, (token) => {
                 streamed += token;
+                setToolStatus(null);
                 setConversations(prev => prev.map(c => {
                     if (c.id !== activeConversation.id) return c;
                     const msgs = [...c.messages];
                     msgs[msgs.length - 1] = { role: "assistant", content: streamed };
                     return { ...c, messages: msgs };
                 }));
+            }, (tool) => {
+                const icons: Record<string, string> = {
+                    run_python: "Running Python Code...",
+                    read_file: "Reading File...",
+                    search_context: "Searching Files..."
+                };
+                setToolStatus(icons[tool.name] ?? `Using ${tool.name}`)
             });
         } catch (err) {
             console.error("Stream error:", err);
@@ -150,6 +161,7 @@ export default function App() {
             }));
         } finally {
             setLoading(false);
+            setToolStatus(null)
         }
     };
 
@@ -200,14 +212,25 @@ export default function App() {
                     {activeConversation?.messages
                         .filter(m => m.content !== "")
                         .map((m, i) => (
-                        <MessageBubble key={i} role={m.role} content={m.content} />
-                    ))}
-                    {isStreaming && (
-                        <div className="thinking">
+                            <MessageBubble key={i} role={m.role} content={m.content}/>
+                        ))}
+                    {showTool && (
+                        <>
+                            <div className="toolStatusBar">
+                                {toolStatus}
+                            </div>
+                            <div className="thinkingDots">
+                                <span /><span /><span />
+                            </div>
+                        </>
+                    )}
+
+                    {showThinking && (
+                        <div className="thinkingDots">
                             <span /><span /><span />
                         </div>
                     )}
-                    <div ref={chatEndRef} />
+                    <div ref={chatEndRef}/>
                 </div>
 
                 {showFiles && uploadedFiles.length > 0 && (

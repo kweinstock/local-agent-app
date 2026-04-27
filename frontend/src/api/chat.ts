@@ -18,9 +18,15 @@ export type Conversation = {
     messages: Message[];
 }
 
+export type ToolEvent = {
+    name: string;
+    args: Record<string, unknown>
+}
+
 export async function sendMessage(
     messages: Message[],
-    onToken: (token: string) => void
+    onToken: (token: string) => void,
+    onTool?: (tool: ToolEvent) => void
 ): Promise<void> {
     const res = await fetch(`${API_URL}/chat`, {
         method: "POST",
@@ -46,6 +52,7 @@ export async function sendMessage(
                     return;
                 }
                 if (parsed.token) onToken(parsed.token);
+                if (parsed.tool) onTool?.({name: parsed.tool, args: parsed.args})
             } catch {
                 // malformed chunk, skip
             }

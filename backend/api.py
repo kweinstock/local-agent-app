@@ -53,9 +53,16 @@ class SaveHistoryRequest(BaseModel):
 def chat(req: ChatRequest):
     def stream():
         try:
-            final_prompt, _ = generate_with_stream(req.messages)
-            for token in llm_stream(final_prompt):
-                yield f"data: {json.dumps({'token': token})}\n\n"
+            final_prompt = None
+            for event in generate_with_stream(req.messages):
+                if event["type"] == "tool":
+                    yield f"data: {json.dumps({'tool': event['name'], 'args': event['args']})}\n\n"
+                elif event["type"] == "final":
+                    final_prompt = event["prompt"]
+
+            if final_prompt:
+                for token in llm_stream(final_prompt):
+                    yield f"data: {json.dumps({'token': token})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
         finally:

@@ -34,12 +34,14 @@ def run_python(code: str):
             text=True,
             timeout=10
         )
-        output = result.stdout or result.stderr
-        return output.strip() or "No output. - The code did not print anything, add print() to show result"
+        if result.returncode != 0:
+            return f"EXECUTION FAILED:\n{result.stderr.strip()}\nFix the error and retry."
+        output = result.stdout.strip()
+        return output or "No output. Add print() to show results."
     except subprocess.TimeoutExpired:
-        return "Error: code timed out after 10 seconds."
+        return "EXECUTION FAILED: timed out after 10 seconds. Simplify the code."
     except Exception as e:
-        return f"Error running code: {e}"
+        return f"EXECUTION FAILED: {e}"
 
 
 def search_context(query: str) -> str:

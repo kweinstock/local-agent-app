@@ -1,351 +1,120 @@
-# Local LLM Agent — Phase 2 Planner (Performance → Claude-Like Behavior)
+# Local Coding Assistant Tools Planner - Phase 3
 
-## Goal
+## 1. File Type Support
+Expand `read_file` and `index_file` to handle:
 
-1. **Make the system fast enough to be usable daily**
-2. **Then upgrade behavior to feel like Claude**
+**Code files** (already work, just need skills):
+- `.py`, `.ts`, `.tsx`, `.js`, `.jsx`
+- `.cs`, `.java`, `.cpp`, `.c`, `.h`
+- `.html`, `.css`, `.json`, `.yaml`, `.toml`, `.md`
 
----
+**Rich files (need new parsers):**
+- `.ipynb` — extract cells (code + markdown separately)
+- `.pdf` — extract text per page
+- `.docx` — extract paragraphs
+- `.csv` — preview + shape info
 
-# Phase 2A — Performance First (DO THIS BEFORE ANYTHING ELSE)
-
-## 1. Enable GPU Acceleration (BIGGEST WIN)
-
-You have an RTX 4060 — not using it is your bottleneck.
-
-### Steps
-
-* Rebuild/install `llama.cpp` with CUDA:
-
-  ```
-  cmake -DLLAMA_CUBLAS=ON ...
-  ```
-* Use `--n-gpu-layers` (or equivalent in Python wrapper)
-
-### Target
-
-* Offload **20–40 layers** to GPU (tune this)
-* Monitor VRAM usage (~8GB usable on 4060)
-
-### Result
-
-* 2x–10x speedup depending on model
+**Metadata to store per file:**
+- detected language
+- file type category (code, notebook, document, data)
+- line count / page count
 
 ---
 
-## 2. Tune Model Size vs Speed (Don’t Overkill)
+## 2. New Tools
 
-Your current:
+**`list_files`**
+- Show all uploaded files with type, size, language
+- Model calls this first when user says "look at my project"
 
-```
-14B @ Q4 + CPU = slow
-```
+**`write_file`**
+- Create or overwrite a file in workspace
+- Args: filename, content
+- Saves to `data/workspace/`
 
-### Strategy
+**`search_files`**
+- Search across all uploaded files for a symbol, function, pattern
+- Args: query, optional filename filter
 
-* Use **7B as default**
-* Use **14B only when needed**
-
-### Add dynamic routing:
-
-```python
-if task == "simple":
-    model = "7B"
-else:
-    model = "14B"
-```
-
-### Result
-
-* Massive latency reduction
-* Keeps quality when needed
+**`run_code`**
+- Replace `run_python` with language-aware execution
+- Detect language from file extension or explicit arg
+- Support: Python, JavaScript (node), TypeScript (ts-node)
+- C, C++, C#, Java — compile then run
 
 ---
 
-## 3. Optimize n_batch + n_ctx
+## 3. File Save from UI
 
-### Current issue
+**Backend:**
+- `GET /workspace` — list created files
+- `GET /workspace/{filename}` — download file
+- `DELETE /workspace/{filename}` — delete file
 
-* Large `n_ctx` slows everything
-* Large `n_batch` can bottleneck CPU/GPU sync
-
-### Fix
-
-* Start with:
-
-  ```
-  n_ctx: 4096–8192
-  n_batch: 64–128
-  ```
-* Only increase when needed
-
-### Rule
-
-> Bigger ≠ better if you don’t use it
+**Frontend:**
+- Download button on assistant messages that contain code blocks
+- Workspace panel in sidebar alongside uploaded files
+- Save button that calls `write_file` tool directly
 
 ---
 
-## 4. Reduce Prompt Size (Hidden Performance Killer)
+## 4. Language Skills
 
-You currently stack:
+One `.md` skill file per language:
 
-* SYSTEM
-* SKILLS
-* MEMORY
-* USER
+**`typescript.md`** — types, interfaces, async/await, imports  
+**`javascript.md`** — modern ES6+, avoid common pitfalls  
+**`csharp.md`** — classes, LINQ, async patterns, namespaces  
+**`java.md`** — OOP patterns, streams, exceptions  
+**`cpp.md`** — memory management, pointers, RAII  
+**`c.md`** — manual memory, structs, header files  
+**`html.md`** — semantic markup, accessibility  
 
-This grows fast.
-
-### Fix
-
-* Trim aggressively:
-
-  * Limit memory results (top 3–5)
-  * Limit skills (only relevant ones)
-* Add token budgeting:
-
-```python
-max_prompt_tokens = 3000
-```
+**Skill matching improvement:**
+- Tag each skill with file extensions
+- When a file is uploaded, force-match its language skill
+- Inject matched skill even if query text doesn't trigger it
 
 ---
 
-## 5. Cache Everything You Can
+## 5. Language Detection
 
-### Add caching for:
+On file upload in `embeddings.py`:
+- Detect language from extension
+- Store in chunk metadata
+- Pass to system prompt as: `Working language: TypeScript`
 
-* File reads
-* Vector search results
-* Previous tool outputs
-
-### Example
-
-```python
-if query in cache:
-    return cache[query]
-```
+On message in `llm.py`:
+- Scan recent convo for uploaded file context
+- Inject detected language into prompt header
+- Lock skill matching to that language for the session
 
 ---
 
-## 6. Streaming + Early Exit
+## 6. Notebook Support (.ipynb)
 
-### Improve UX + speed perception:
-
-* Stream tokens immediately
-* Allow early stopping if answer is “good enough”
-
----
-
-## 7. Parallelize Where Possible
-
-### Easy wins:
-
-* Run FAISS search async
-* Preload files while model thinks
+Special handling:
+- Parse JSON structure
+- Separate code cells from markdown cells
+- Index each cell individually with cell number metadata
+- Show cell type in search results
 
 ---
 
-## 8. Model Settings Tuning
+## 7. PDF Support
 
-Start with:
-
-```
-temperature: 0.2–0.4
-top_p: 0.9
-repeat_penalty: 1.1–1.2
-```
-
-Lower temperature = faster + more stable
+- Extract text per page using `pypdf` or `pdfplumber`
+- Index page by page instead of line by line
+- Store page number in chunk metadata
+- Handle scanned PDFs gracefully (flag as image-based, skip)
 
 ---
 
-## Phase 2A Result
-
-* GPU utilized
-* 2–10x faster responses
-* Lower latency agent loop
-
----
-
-# Phase 2B — Claude-Like Behavior (After Speed is Fixed)
-
-## 1. Structured Tool Calling (CRITICAL)
-
-### Replace:
-
-```
-TOOL: run_python
-ARGS: ...
-```
-
-### With:
-
-```json
-{
-  "tool": "run_python",
-  "args": {...}
-}
-```
-
-### Add:
-
-* validation
-* retry on failure
-
----
-
-## 2. Proper Agent Loop (Think → Act → Observe)
-
-### Upgrade loop:
-
-```python
-for step in range(max_steps):
-    response = model(prompt)
-
-    if tool_call:
-        result = run_tool(...)
-        prompt += f"TOOL RESULT:\n{result}"
-    else:
-        break
-```
-
-### Add:
-
-* max steps (3–5)
-* tool reflection
-
----
-
-## 3. Code Execution Feedback Loop
-
-### Behavior:
-
-1. Generate code
-2. Run code
-3. Capture errors
-4. Fix automatically
-
----
-
-## 4. Memory That Feels Smart
-
-### Add layers:
-
-* short-term (recent messages)
-* long-term (FAISS)
-* summarized memory
-
-### Add:
-
-* auto summarization every N turns
-* importance scoring
-
----
-
-## 5. Better File Understanding
-
-### Upgrade from:
-
-* search → read
-
-### To:
-
-* search → expand → follow imports → build context
-
----
-
-## 6. Strong System Prompt (Claude Style)
-
-### Add rules:
-
-* Prefer tools over guessing
-* Never hallucinate file contents
-* Explain actions briefly
-* Think step-by-step when needed
-
----
-
-## 7. Planning Mode
-
-### Example:
-
-```
-PLAN:
-1. Search files
-2. Read code
-3. Modify function
-4. Test
-```
-
-Then execute step-by-step
-
----
-
-## 8. Self-Critique / Self-Repair
-
-### Add optional second pass:
-
-```python
-critique = model("Critique the response")
-fix = model("Improve based on critique")
-```
-
----
-
-## 9. Tool Transparency (UX)
-
-Show:
-
-```
-🔧 Reading file: app.py
-🐍 Running Python code
-```
-
----
-
-## 10. Stability Over Cleverness
-
-Claude feels good because:
-
-* it’s consistent
-* it doesn’t break flow
-* it recovers from errors
-
-Focus on:
-
-* fewer failures
-* cleaner outputs
-* predictable behavior
-
----
-
-# Final Priority Order
-
-## Do FIRST (Performance)
-
-1. GPU acceleration (CUDA + n_gpu_layers)
-2. Use 7B by default, 14B selectively
-3. Reduce prompt size
-4. Tune n_ctx + n_batch
-5. Add caching
-
-## THEN (Behavior)
-
-6. Structured tool calling
-7. Proper agent loop
-8. Code execution feedback
-9. Memory improvements
-10. Prompt + planning upgrades
-
----
-
-# End State
-
-You’ll have:
-
-* Fast local assistant (usable daily)
-* Tool-using coding agent
-* Memory-aware system
-* Claude-like reasoning behavior
-
----
+## Priority Order
+
+1. PDF + ipynb parsers (highest impact, you likely have these now)
+2. `write_file` tool + workspace UI (core coding assistant feature)
+3. Language skills (low effort, high model quality gain)
+4. `list_files` + `search_files` tools
+5. `run_code` language expansion
+6. Language detection + skill locking

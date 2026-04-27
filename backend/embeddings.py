@@ -17,8 +17,27 @@ VECTOR_DIR.mkdir(parents=True, exist_ok=True)
 CHUNK_SIZE = 40
 CHUNK_OVERLAP = 5
 
+EXT_TO_LANGUAGE = {
+    ".py": "python",
+    ".ts": "typescript", ".tsx": "typescript",
+    ".js": "javascript", ".jsx": "javascript",
+    ".java": "java",
+    ".cs": "csharp",
+    ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp",
+    ".c": "c", ".h": "c",
+    ".html": "html",
+    ".css": "css",
+    ".json": "json",
+    ".md": "markdown",
+}
+
+def detect_language(filename: str) -> str:
+    ext = Path(filename).suffix.lower()
+    return EXT_TO_LANGUAGE.get(ext)
+
 
 def chunk_file(path: str) -> list[dict]:
+    language = detect_language(path)
     lines = Path(path).read_text().splitlines()
     chunks = []
     i = 0
@@ -29,6 +48,7 @@ def chunk_file(path: str) -> list[dict]:
             "start": i,
             "end": end,
             "text": "\n".join(lines[i:end]),
+            "language": language,
         })
         i += CHUNK_SIZE - CHUNK_OVERLAP
     return chunks
@@ -52,6 +72,15 @@ def index_file(filename: str, filepath: str):
     faiss.write_index(index, str(VECTOR_DIR / f"{stem}.index"))
     (VECTOR_DIR / f"{stem}.meta.json").write_text(json.dumps(chunks, indent=2))
 
+def get_file_language(filename: str) -> str | None:
+    stem = Path(filename).stem
+    meta_path = VECTOR_DIR / f"{stem}.meta.json"
+    if not meta_path.exists():
+        return None
+    chunks = json.load(meta_path.read_text())
+    if chunks:
+        return chunks[0]["language"]
+    return None
 
 def search(query: str, filename: str, top_k: int = 3) -> list[dict]:
     stem = Path(filename).stem

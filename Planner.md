@@ -58,7 +58,7 @@ Expand `read_file` and `index_file` to handle:
 
 ---
 
-## 4. Language Skills
+## 4. Language Skills (Complete)
 
 One `.md` skill file per language:
 

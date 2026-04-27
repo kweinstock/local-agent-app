@@ -4,9 +4,13 @@
 #              llm to generate text
 
 from llama_cpp import Llama
+
+from backend.api import upload_file
 from backend.tools import get_tool_descriptions, call_tool
-from backend.skills import get_relevant_skills, format_skills, build_skill_index
+from backend.skills import get_relevant_skills, format_skills, build_skill_index, get_skills_for_context, \
+    get_languages_from_uploads
 from backend.config import get_hardware_config
+from pathlib import Path
 import json
 import ast
 import re
@@ -53,17 +57,25 @@ When giving a final answer, output plain text only. No TOOL: lines.
 build_skill_index()
 
 
-def build_system_prompt(query: str) -> str:
+def build_system_prompt(query: str, uploaded_filenames: list[str] = None) -> str:
+    uploaded_filenames = uploaded_filenames or []
+
     # Skills
-    skills = get_relevant_skills(query)
+    skills = get_skills_for_context(query, uploaded_filenames)
     print(f"[skills] matched: {[s['name'] for s in skills]}")
     skill_block = format_skills(skills)
     skill_section = f"\n\n## Skills\n{skill_block}" if skill_block else ""
 
+    languages = get_languages_from_uploads(uploaded_filenames)
+    lang_section = ""
+    if languages:
+        lang_list = ", ".join(languages)
+        lang_section = f"\n\n## Working Language\nThe uploaded files use: {lang_list}. Stick to these languages unless asked otherwise."
+
     # Tools
     tool_section = f"\n\n## Available tools:\n{get_tool_descriptions()}"
 
-    return BASE_PROMPT + skill_section + tool_section
+    return BASE_PROMPT + lang_section + skill_section + tool_section
 
 
 def format_messages(messages) -> str:
@@ -72,8 +84,8 @@ def format_messages(messages) -> str:
     ])
 
 
-def format_messages_from_dicts(messages: list[dict], query: str = "") -> str:
-    system = build_system_prompt(query)
+def format_messages_from_dicts(messages: list[dict], query: str = "", uploaded_filenames: list[str] = None) -> str:
+    system = build_system_prompt(query, uploaded_filenames or [])
     prompt = f"<|im_start|>system\n{system}<|im_end|>\n"
     for m in messages:
         if m["role"] == "user":
@@ -154,9 +166,10 @@ def generate(messages):
     convo = [{"role": m.role, "content": m.content} for m in messages]
     convo = convo[-MAX_HISTORY:]
     query = convo[-1]["content"] if convo else ""
+    uploaded_filenames = _get_uploaded_filenames()
 
     for step in range(MAX_STEPS):
-        prompt = format_messages_from_dicts(convo, query)
+        prompt = format_messages_from_dicts(convo, query, uploaded_filenames)
         response = llm_call(prompt)
         print(f"[step {step}] raw response:\n{response}\n")
         tool_call = parse_tool_call(response)
@@ -192,9 +205,11 @@ def generate_with_stream(messages):
     convo = [{"role": m.role, "content": m.content} for m in messages]
     convo = convo[-MAX_HISTORY:]
     query = convo[-1]["content"] if convo else ""
+    uploaded_filenames = _get_uploaded_filenames()
+
 
     for step in range(MAX_STEPS):
-        prompt = format_messages_from_dicts(convo, query)
+        prompt = format_messages_from_dicts(convo, query, uploaded_filenames)
         response = llm_call(prompt, max_tokens=128)
         print(f"[step {step}] raw: {response}")
         tool_call = parse_tool_call(response)
@@ -216,3 +231,10 @@ def generate_with_stream(messages):
         convo.append({"role": "user", "content": f"Tool result for {name}:\n{result}"})
 
     yield {"type": "final", "prompt": format_messages_from_dicts(convo, query)}
+
+
+def _get_uploaded_filenames():
+    upload_dir = Path("data/uploads")
+    if not upload_dir.exists():
+        return []
+    return [f.name for f in upload_dir.iterdir() if f.is_file()]

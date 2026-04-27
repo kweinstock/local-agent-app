@@ -5,7 +5,7 @@
 
 import os
 from pathlib import Path
-from backend.embeddings import embed
+from backend.embeddings import embed, get_file_language
 import faiss
 import numpy as np
 import json
@@ -18,6 +18,8 @@ SKILLS_BASE_DIR.mkdir(parents=True, exist_ok=True)
 
 SKILL_INDEX_PATH = Path(os.path.join(SKILLS_BASE_DIR, "skill_index.json"))
 SKILL_META_PATH = Path(os.path.join(SKILLS_BASE_DIR, "skill_meta.json"))
+
+UPLOAD_DIR = Path("data/uploads")
 
 
 def load_skills() -> list[dict]:
@@ -42,6 +44,25 @@ def build_skill_index():
     SKILL_META_PATH.write_text(json.dumps(skills, indent=2))
 
 
+def get_skill_by_language(language: str) -> dict | None:
+    if not SKILL_META_PATH.exists():
+        return None
+    meta = json.loads(SKILL_META_PATH.read_text())
+    for skill in meta:
+        if skill["name"].lower() == language.lower():
+            return skill
+    return None
+
+
+def get_languages_from_uploads(filenames: list[str]) -> list[str]:
+    languages = []
+    for filename in filenames:
+        lang = get_file_language(filename)
+        if lang and lang not in languages:
+            languages.append(lang)
+    return languages
+
+
 def get_relevant_skills(query: str, top_k: int = 2, threshold: float = 1.0) -> list[dict]:
     if not SKILL_INDEX_PATH.exists():
         build_skill_index()
@@ -54,10 +75,36 @@ def get_relevant_skills(query: str, top_k: int = 2, threshold: float = 1.0) -> l
     distances, indices = index.search(q_vectors, top_k)
 
     results = []
+    seen = set()
     for dist, i in zip(distances[0], indices[0]):
         if i < len(meta) and dist < threshold:
+            skill = meta[i]
+            if skill["name"] not in seen:
+                results.append(skill)
+                seen.add(skill["name"])
             results.append(meta[i])
     return results
+
+
+def get_skills_for_context(query: str, uploaded_filenames: list[str]) -> list[dict]:
+    seen = set()
+    results = []
+
+    languages = get_languages_from_uploads(uploaded_filenames)
+    for lang in languages:
+        skill = get_skill_by_language(lang)
+        if skill and skill["name"] not in seen:
+            results.append(skill)
+            seen.add(skill["name"])
+
+    query_skills = get_relevant_skills(query)
+    for skill in query_skills:
+        if skill["name"] not in seen:
+            results.append(skill)
+            seen.add(skill["name"])
+
+    return results
+
 
 def format_skills(skills: list[dict]) -> str:
     if not skills:

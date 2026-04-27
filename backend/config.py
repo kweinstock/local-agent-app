@@ -20,7 +20,7 @@ TIER_CONFIG = {
         "n_batch": 128,
     },
     "high": {
-        "model":   "qwen-2.5-14B-instruct-1m-gguf-Q4-K-M.gguf",
+        "model":   "qwen-2.5-7B-instruct-gguf-Q4-K-M.gguf",
         "n_ctx":   16384,
         "n_batch": 256,
     },

@@ -6,3 +6,4 @@ faiss-cpu
 numpy~=2.4.4
 sentence-transformers
 llama-cpp-python
+uvicorn

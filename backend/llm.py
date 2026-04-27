@@ -8,6 +8,7 @@ from backend.tools import get_tool_descriptions, call_tool
 from backend.skills import get_relevant_skills, format_skills, build_skill_index
 from backend.config import get_hardware_config
 import json
+import ast
 import re
 
 HW = get_hardware_config()
@@ -16,11 +17,11 @@ MAX_HISTORY = 8
 
 LLM = Llama(
     model_path=HW["model_path"],
-    n_ctx=HW["n_ctx"],  # 32768 / 4096
+    n_ctx=HW["n_ctx"],
     n_threads=HW["n_threads"],
     n_batch=HW["n_batch"],
-    n_gpu_layers=1,
-    verbose=True
+    n_gpu_layers=22,
+    verbose=False
 )
 
 # Prompt formatting
@@ -39,9 +40,11 @@ No preamble. No explanation. No code blocks. No numbering. Just those two lines.
 When giving a final answer, output plain text only. No TOOL: lines.
 
 ## Tool rules
+- If the user is greeting or making small talk, respond directly. NEVER use tools for greetings.
 - Call ONE tool per turn.
 - For uploaded files: always call search_context first, then read_file with the returned line range.
 - For running code: call run_python with the code as a string.
+- Use search_context ONLY when the user explicitly asks about an uploaded file or document.
 - Never describe what you would do. Do it.
 - Never invent tool results."""
 
@@ -80,28 +83,32 @@ def format_messages_from_dicts(messages: list[dict], query: str = "") -> str:
 
 
 def parse_tool_call(text: str):
-    # Remove markdown fences
     cleaned = re.sub(r"```[a-zA-Z]*\n?", "", text).strip()
 
-    # 1. Try TOOL/ARGS format
     match = re.search(
-        r"TOOL:\s*(\w+)\s*ARGS:\s*(\{.*?\})",
+        r"TOOL:\s*(\w+)\s*\nARGS:\s*(\{.*?\})",
         cleaned,
         re.DOTALL | re.IGNORECASE
     )
 
     if match:
         name = match.group(1)
+        raw = match.group(2)
+        # Try JSON first
         try:
-            args = json.loads(match.group(2))
-            return name, args
+            return name, json.loads(raw)
         except json.JSONDecodeError:
             pass
+        # Fall back to ast.literal_eval for Python-style dicts (mixed quotes etc.)
+        try:
+            args = ast.literal_eval(raw)
+            if isinstance(args, dict):
+                return name, args
+        except (ValueError, SyntaxError):
+            pass
 
-    # 2. Fallback: try JSON tool call
-    json_matches = re.findall(r"\{.*?\}", cleaned, re.DOTALL)
-
-    for jm in json_matches:
+    # Fallback: bare JSON object with tool/args keys
+    for jm in re.findall(r"\{.*?\}", cleaned, re.DOTALL):
         try:
             data = json.loads(jm)
             if "tool" in data and "args" in data:
@@ -116,7 +123,7 @@ def llm_call(prompt: str, max_tokens: int = 512) -> str:
     output = LLM(
         prompt,
         max_tokens=max_tokens,
-        temperature=0.3,
+        temperature=0.2,
         repeat_penalty=1.15,
         stop=["<|im_end|>", "<|im_start|>"]
     )
@@ -130,7 +137,7 @@ def llm_stream(prompt: str):
     stream = LLM(
         prompt,
         max_tokens=512,
-        temperature=0.3,
+        temperature=0.2,
         repeat_penalty=1.15,
         stop=["<|im_end|>", "<|im_start|>"],
         stream=True,
@@ -171,7 +178,6 @@ def generate(messages):
 
 
 def generate_with_stream(messages):
-    """Runs the agent loop, returns (final_prompt, convo) for streaming the last step."""
     convo = [{"role": m.role, "content": m.content} for m in messages]
     convo = convo[-MAX_HISTORY:]
     query = convo[-1]["content"] if convo else ""

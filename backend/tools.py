@@ -26,6 +26,7 @@ def read_file(path: str, start_line: int = 0, end_line: int = None) -> str:
 
 
 def run_python(code: str):
+    code = code.replace("\\n", "\n").replace("\\t", "\t")
     try:
         result = subprocess.run(
             [sys.executable, "-c", code],
@@ -34,7 +35,7 @@ def run_python(code: str):
             timeout=10
         )
         output = result.stdout or result.stderr
-        return output.strip() or "No output."
+        return output.strip() or "No output. - The code did not print anything, add print() to show result"
     except subprocess.TimeoutExpired:
         return "Error: code timed out after 10 seconds."
     except Exception as e:
@@ -69,8 +70,12 @@ TOOLS = {
             'Execute Python code and return stdout. '
             'Args: {"code": "string"}. '
             'IMPORTANT: always use print() to output results, '
+            'Always wrap results in print'
             'return values are not shown. '
             'Example: TOOL: run_python\nARGS: {"code": "print(sorted([3,1,2]))"}'
+            'list(fibonacci(10)) produces no output. '
+            'print(list(fibonacci(10))) does. '
+            'If the first attempt returns no output, retry with print().'
         ),
     },
     "search_context": {

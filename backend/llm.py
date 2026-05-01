@@ -22,7 +22,7 @@ LLM = Llama(
     n_ctx=HW["n_ctx"],
     n_threads=HW["n_threads"],
     n_batch=HW["n_batch"],
-    n_gpu_layers=22,
+    n_gpu_layers=-1,
     verbose=False
 )
 
@@ -43,6 +43,9 @@ Never invent tool names. If a tool does not exist, answer directly.
 - "save", "save it", "save to a file", "put it in a file" → ALWAYS call write_file immediately. Never describe how to save manually.
 - Never include Python docstrings (triple-quoted strings) in file content passed to write_file.
 - Replace docstrings with regular comments using # instead.
+- Never describe code and ask the user to save it. Always call write_file directly.
+- If asked to create multiple files, call write_file once per file in sequence.
+- "what files do I have", "show my files", "where are my files" → ALWAYS call list_files, never answer from memory
 
 ## Tool call format
 When calling a tool output ONLY these two lines, nothing else:
@@ -251,6 +254,8 @@ def generate_with_stream(messages):
     query = convo[-1]["content"] if convo else ""
     uploaded_filenames = _get_uploaded_filenames()
 
+    seen_calls = set()
+
     for step in range(MAX_STEPS):
         prompt = format_messages_from_dicts(convo, query, uploaded_filenames)
         response = llm_call(prompt, max_tokens=1024)
@@ -262,6 +267,11 @@ def generate_with_stream(messages):
             return
 
         name, args = tool_call
+        call_sig = f"{name}:{json.dumps(args, sort_keys=True)}"
+        if call_sig in seen_calls:
+            yield {"type": "final", "prompt": prompt}
+            return
+        seen_calls.add(call_sig)
         yield {"type": "tool", "name": name, "args": args}
 
         try:

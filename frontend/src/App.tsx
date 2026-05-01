@@ -181,7 +181,7 @@ export default function App() {
         }
     };
 
-    const totalFiles = uploadedFiles.length + workspaceFiles.length;
+    const totalFiles = uploadedFiles.length;
 
     return (
         <div className="appLayout">

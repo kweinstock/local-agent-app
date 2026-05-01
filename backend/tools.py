@@ -121,23 +121,42 @@ def list_files() -> str:
     return "Files:\n" + "\n".join(lines) if lines else "No files available."
 
 
-def run_python(code: str) -> str:
-    code = code.replace("\\n", "\n").replace("\\t", "\t")
-    try:
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        if result.returncode != 0:
-            return f"EXECUTION FAILED:\n{result.stderr.strip()}\nFix the error and retry."
-        output = result.stdout.strip()
-        return output or "No output. Add print() to show results."
-    except subprocess.TimeoutExpired:
-        return "EXECUTION FAILED: timed out after 10 seconds. Simplify the code."
-    except Exception as e:
-        return f"EXECUTION FAILED: {e}"
+def run_python(code: str = None, file: str = None) -> str:
+    import subprocess, sys
+
+    if file:
+        resolved = _resolve_file(file)
+        if not resolved:
+            return f"File not found: {file}. Use list_files to see available files."
+        try:
+            result = subprocess.run(
+                [sys.executable, str(resolved)],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode != 0:
+                return f"EXECUTION FAILED:\n{result.stderr.strip()}"
+            return result.stdout.strip() or "No output."
+        except subprocess.TimeoutExpired:
+            return "EXECUTION FAILED: timed out after 10 seconds."
+
+    if code:
+        code = code.replace("\\n", "\n").replace("\\t", "\t")
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", code],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode != 0:
+                return f"EXECUTION FAILED:\n{result.stderr.strip()}\nFix the error and retry."
+            return result.stdout.strip() or "No output. Add print() to show results."
+        except subprocess.TimeoutExpired:
+            return "EXECUTION FAILED: timed out after 10 seconds."
+
+    return "Provide either code or file argument."
 
 
 def search_context(query: str) -> str:
@@ -238,11 +257,12 @@ TOOLS = {
     "run_python": {
         "fn": run_python,
         "description": (
-            "Execute Python code and return stdout. "
-            "Args: {\"code\": \"string\"}. "
-            "Always use print() to output results. "
-            "For CSV analysis, use pandas — the file is at data/uploads/<filename>. "
-            "For workspace files use data/workspace/<filename>."
+            "Execute Python code or run a saved Python file. "
+            "To run inline code: args: {\"code\": \"string\"}. Always use print() to show results. "
+            "To run a saved file: args: {\"file\": \"filename.py\"}. "
+            "Use the file arg to test workspace files — never import them as modules. "
+            "Never use: from fibonacci import fibonacci. "
+            "Instead use: run_python with file='fibonacci.py'."
         ),
     },
     "search_context": {

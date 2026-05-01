@@ -39,3 +39,10 @@
 - Right: print(f"{word}\nAttempts: {attempts}")
 - Always use double quotes for f-strings
 - Never break an f-string across multiple lines
+
+## Testing saved files
+- Never import workspace or uploaded files as modules — it will always fail
+- Wrong: run_python with {"code": "from fibonacci import fibonacci; print(fibonacci(5))"}
+- Right: run_python with {"file": "fibonacci.py"} to execute the file directly
+- The file arg works for both uploaded files and workspace files
+- To test a specific function inline, copy the function code into the code arg and call it directly

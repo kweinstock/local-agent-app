@@ -1,6 +1,6 @@
 # Local Coding Assistant - Phase 4: Quality & Reliability
 
-## 1. Model Swap — Qwen2.5-Coder-7B (Highest Leverage)
+## 1. Model Swap — Qwen2.5-Coder-7B (Highest Leverage) (Complete)
 The single biggest improvement available. Same size, same format, same prompt
 template as current model. Fine-tuned specifically on code and tool calling.
 Fixes placeholder code, bad tool calls, and quote errors at the source.

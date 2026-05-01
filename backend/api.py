@@ -68,6 +68,8 @@ def chat(req: ChatRequest):
             if final_prompt:
                 for token in llm_stream(final_prompt):
                     yield f"data: {json.dumps({'token': token})}\n\n"
+        except GeneratorExit:
+            return
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
         finally:
@@ -164,6 +166,13 @@ def delete_workspace_file(filename: str):
     if not file_path.exists():
         return {"ok": False, "error": "File not found"}
     file_path.unlink()
+
+    stem = Path(filename).stem
+    index_path = Path("data/vectors") / f"{stem}.index"
+    meta_path = Path("data/vectors") / f"{stem}.meta.json"
+    if index_path.exists(): index_path.unlink()
+    if meta_path.exists(): meta_path.unlink()
+
     return {"ok": True}
 
 

@@ -5,10 +5,8 @@
 
 from llama_cpp import Llama
 
-from backend.api import upload_file
 from backend.tools import get_tool_descriptions, call_tool
-from backend.skills import get_relevant_skills, format_skills, build_skill_index, get_skills_for_context, \
-    get_languages_from_uploads
+from backend.skills import format_skills, build_skill_index, get_skills_for_context, get_languages_from_uploads
 from backend.config import get_hardware_config
 from pathlib import Path
 import json
@@ -29,30 +27,45 @@ LLM = Llama(
 )
 
 # Prompt formatting
-BASE_PROMPT = """You are a tool-calling agent. You have access to tools and must use them when needed.
+BASE_PROMPT = """You are a general coding assistant with access to tools. Use them correctly.
 
-## Output rules
-- If calling a tool: output ONLY the two TOOL/ARGS lines. Nothing else.
-- For complex tasks, think through the steps before acting.
-- After using a tool, briefly explain what you found before continuing.
-- If giving a final answer: output plain text only. No TOOL lines.
-- Never mix explanation and tool calls in the same response.
-When calling a tool you MUST output ONLY these two lines, nothing else:
+## Available tool names ONLY
+You may ONLY call tools from the list in ## Available tools below.
+Never invent tool names. If a tool does not exist, answer directly.
+
+## When to use which tool
+- User asks what files are uploaded / "what files do I have" / "look at my project" → call list_files (no args)
+- User asks to find a function, symbol, or pattern in a file → call search_files
+- User asks about content of an uploaded file → call search_context first, then read_file
+- User asks to save / create / write a file → call write_file with filename and full content
+- User asks to run code or calculate something → call run_python
+- User asks a general question, greets you, or asks about code concepts → answer directly, NO tools
+- "save", "save it", "save to a file", "put it in a file" → ALWAYS call write_file immediately. Never describe how to save manually.
+- Never include Python docstrings (triple-quoted strings) in file content passed to write_file.
+- Replace docstrings with regular comments using # instead.
+
+## Tool call format
+When calling a tool output ONLY these two lines, nothing else:
 TOOL: <name>
 ARGS: {"key": "value"}
 
-No preamble. No explanation. No code blocks. No numbering. Just those two lines.
+No explanation before or after. No markdown. No preamble. Just those two lines.
 
-When giving a final answer, output plain text only. No TOOL: lines.
+## ARGS format rules
+- ARGS must be valid JSON. Use double quotes only.
+- For multi-line content use \\n not triple quotes or actual newlines inside strings.
+- Correct example: ARGS: {\"filename\": \"x.py\", \"content\": \"line1\\nline2\\nline3\"}
+- Wrong example: ARGS: {\"filename\": \"x.py\", \"content\": use triple quotes}
 
-## Tool rules
-- If the user is greeting or making small talk, respond directly. NEVER use tools for greetings.
-- Call ONE tool per turn.
-- For uploaded files: always call search_context first, then read_file with the returned line range.
-- For running code: call run_python with the code as a string.
-- Use search_context ONLY when the user explicitly asks about an uploaded file or document.
-- Never describe what you would do. Do it.
-- Never invent tool results."""
+## Output rules
+- Final answers are plain text or markdown. No TOOL lines in final answers.
+- Never call the same tool twice with the same args in the same conversation turn.
+- If a tool returns an error, try a different approach — do not repeat the same call.
+- If search_context returns file content, use it to answer directly. Do not call it again.
+- When writing a file: include the COMPLETE file content in write_file. Never truncate.
+- Never hallucinate file contents. Only describe what you actually read from a tool result.
+- Keep responses complete. Never cut off mid-sentence or mid-code block.
+- Keep the responses concise and informative. do not add a large amount of fluff"""
 
 build_skill_index()
 
@@ -97,29 +110,60 @@ def format_messages_from_dicts(messages: list[dict], query: str = "", uploaded_f
 
 
 def parse_tool_call(text: str):
+    write_match = re.search(
+        r"TOOL:\s*write_file\s*\nFILENAME:\s*(.+?)\s*\n```(?:\w+)?\n(.*?)```",
+        text,
+        re.DOTALL | re.IGNORECASE
+    )
+    if write_match:
+        filename = write_match.group(1).strip()
+        content = write_match.group(2)
+        return "write_file", {"filename": filename, "content": content}
+
     cleaned = re.sub(r"```[a-zA-Z]*\n?", "", text).strip()
 
+    # Normalize triple quotes
+    cleaned = re.sub(r'"""(.*?)"""', lambda m: json.dumps(m.group(1)), cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"'''(.*?)'''", lambda m: json.dumps(m.group(1)), cleaned, flags=re.DOTALL)
+    cleaned = cleaned.replace('"""', '"').replace("'''", "'")
+
     match = re.search(
-        r"TOOL:\s*(\w+)\s*\nARGS:\s*(\{.*?\})",
+        r"TOOL:\s*(\w+)\s*\nARGS:\s*(\{.*)",
         cleaned,
         re.DOTALL | re.IGNORECASE
     )
 
-    if match:
-        name = match.group(1)
-        raw = match.group(2)
-        # Try JSON first
-        try:
-            return name, json.loads(raw)
-        except json.JSONDecodeError:
-            pass
-        # Fall back to ast.literal_eval for Python-style dicts (mixed quotes etc.)
-        try:
-            args = ast.literal_eval(raw)
-            if isinstance(args, dict):
-                return name, args
-        except (ValueError, SyntaxError):
-            pass
+    if not match:
+        return None
+
+    name = match.group(1)
+    raw = match.group(2).strip()
+
+    # Try clean JSON first
+    try:
+        return name, json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    # Extract filename and content separately using regex
+    # This bypasses JSON parsing entirely for write_file
+    filename_match = re.search(r'"filename"\s*:\s*"([^"]+)"', raw)
+    content_match = re.search(r'"content"\s*:\s*"(.*?)(?:"\s*\}|"\s*$)', raw, re.DOTALL)
+
+    if filename_match and content_match:
+        filename = filename_match.group(1)
+        content = content_match.group(1)
+        # Unescape standard JSON escapes
+        content = content.replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"')
+        return name, {"filename": filename, "content": content}
+
+    # Try ast.literal_eval fallback
+    try:
+        args = ast.literal_eval(raw)
+        if isinstance(args, dict):
+            return name, args
+    except (ValueError, SyntaxError):
+        pass
 
     # Fallback: bare JSON object with tool/args keys
     for jm in re.findall(r"\{.*?\}", cleaned, re.DOTALL):
@@ -137,7 +181,7 @@ def llm_call(prompt: str, max_tokens: int = 512) -> str:
     output = LLM(
         prompt,
         max_tokens=max_tokens,
-        temperature=0.2,
+        temperature=0.1,
         repeat_penalty=1.15,
         stop=["<|im_end|>", "<|im_start|>"]
     )
@@ -150,7 +194,7 @@ def llm_call(prompt: str, max_tokens: int = 512) -> str:
 def llm_stream(prompt: str):
     stream = LLM(
         prompt,
-        max_tokens=512,
+        max_tokens=1024,
         temperature=0.2,
         repeat_penalty=1.15,
         stop=["<|im_end|>", "<|im_start|>"],
@@ -207,10 +251,9 @@ def generate_with_stream(messages):
     query = convo[-1]["content"] if convo else ""
     uploaded_filenames = _get_uploaded_filenames()
 
-
     for step in range(MAX_STEPS):
         prompt = format_messages_from_dicts(convo, query, uploaded_filenames)
-        response = llm_call(prompt, max_tokens=128)
+        response = llm_call(prompt, max_tokens=1024)
         print(f"[step {step}] raw: {response}")
         tool_call = parse_tool_call(response)
 
@@ -233,8 +276,9 @@ def generate_with_stream(messages):
     yield {"type": "final", "prompt": format_messages_from_dicts(convo, query)}
 
 
-def _get_uploaded_filenames():
-    upload_dir = Path("data/uploads")
-    if not upload_dir.exists():
-        return []
-    return [f.name for f in upload_dir.iterdir() if f.is_file()]
+def _get_uploaded_filenames() -> list[str]:
+    names = []
+    for d in [Path("data/uploads"), Path("data/workspace")]:
+        if d.exists():
+            names.extend(f.name for f in d.iterdir() if f.is_file())
+    return names

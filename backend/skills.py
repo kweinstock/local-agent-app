@@ -27,7 +27,7 @@ def load_skills() -> list[dict]:
     for f in SKILLS_DIR.glob("*.md"):
         skills.append({
             "name": f.stem,
-            "content": f.read_text(),
+            "content": f.read_text(encoding="utf-8"),
         })
     return skills
 

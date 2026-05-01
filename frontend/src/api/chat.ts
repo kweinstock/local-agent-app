@@ -8,8 +8,8 @@ import axios from "axios";
 const API_URL = "http://100.82.231.125:8000";
 
 export type Message = {
-  role: "user" | "assistant";
-  content: string;
+    role: "user" | "assistant";
+    content: string;
 };
 
 export type Conversation = {
@@ -23,6 +23,12 @@ export type ToolEvent = {
     args: Record<string, unknown>
 }
 
+export type WorkspaceFile = {
+    filename: string;
+    size_kb: number;
+    ext: string;
+}
+
 export async function sendMessage(
     messages: Message[],
     onToken: (token: string) => void,
@@ -30,15 +36,15 @@ export async function sendMessage(
 ): Promise<void> {
     const res = await fetch(`${API_URL}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages }),
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({messages}),
     });
 
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
 
     while (true) {
-        const { done, value } = await reader.read();
+        const {done, value} = await reader.read();
         if (done) break;
         const text = decoder.decode(value);
         for (const line of text.split("\n")) {
@@ -66,7 +72,7 @@ export async function loadHistory() {
 }
 
 export async function saveHistory(conversations: Conversation[]) {
-    await axios.post(`${API_URL}/history`, { conversations });
+    await axios.post(`${API_URL}/history`, {conversations});
 }
 
 export async function uploadFile(file: File): Promise<string> {
@@ -94,3 +100,17 @@ export async function getStats(): Promise<{
     const res = await axios.get(`${API_URL}/stats`);
     return res.data;
 }
+
+export async function getWorkspaceFiles(): Promise<WorkspaceFile[]> {
+    const res = await axios.get(`${API_URL}/workspace`);
+    return res.data;
+}
+
+export async function deleteWorkspaceFile(filename: string): Promise<void> {
+    await axios.delete(`${API_URL}/workspace/${filename}`);
+}
+
+export function getWorkspaceDownloadUrl(filename: string): string {
+    return `${API_URL}/workspace/${filename}`;
+}
+

@@ -17,3 +17,16 @@
 - Use search_context to find the relevant file before suggesting fixes
 - Use run_python to verify a fix works before presenting it
 - Never suggest a fix you haven't reasoned through completely
+
+## String Quote Fixes
+- When fixing quote errors in Python strings, change the outer quotes to double quotes
+- print('Let's go') is broken — fix as print("Let's go") not print('Let\'s go')
+- Always verify the fix compiles before writing the file
+- Use run_python to test the corrected code before calling write_file
+
+## When the user pastes an error
+- A pasted error IS the full context needed — do not ask for more information
+- Read the filename and line number from the error immediately
+- Call list_files to find the file, then read_file at the reported line number
+- Never respond with questions when a SyntaxError is given — act on it directly
+- SyntaxError means the file cannot run — fix it and rewrite the complete file with write_file

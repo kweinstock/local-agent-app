@@ -6,6 +6,10 @@
 import faiss
 import numpy as np
 import json
+import nbformat
+import pandas as pd
+from pypdf import PdfReader
+from docx import Document
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
 from backend.config import get_embed_model_path
@@ -31,14 +35,32 @@ EXT_TO_LANGUAGE = {
     ".md": "markdown",
 }
 
+EXT_TO_CATEGORY = {
+    ".py": "code", ".ts": "code", ".tsx": "code",
+    ".js": "code", ".jsx": "code", ".cs": "code",
+    ".java": "code", ".cpp": "code", ".cc": "code",
+    ".cxx": "code", ".c": "code", ".h": "code",
+    ".html": "code", ".css": "code", ".json": "code",
+    ".yaml": "code", ".toml": "code", ".md": "code",
+    ".ipynb": "notebook",
+    ".pdf": "document", ".docx": "document",
+    ".csv": "data",
+}
+
+
 def detect_language(filename: str) -> str:
-    ext = Path(filename).suffix.lower()
-    return EXT_TO_LANGUAGE.get(ext)
+    return EXT_TO_LANGUAGE.get(Path(filename).suffix.lower())
 
 
-def chunk_file(path: str) -> list[dict]:
+def detect_category(filename: str) -> str:
+    return EXT_TO_CATEGORY.get(Path(filename).suffix.lower(), "code")
+
+
+# Parsers
+def parse_text (path: str) -> list[dict]:
     language = detect_language(path)
-    lines = Path(path).read_text().splitlines()
+    category = detect_category(path)
+    lines = Path(path).read_text(errors="replace").splitlines()
     chunks = []
     i = 0
     while i < len(lines):
@@ -49,17 +71,142 @@ def chunk_file(path: str) -> list[dict]:
             "end": end,
             "text": "\n".join(lines[i:end]),
             "language": language,
+            "category": category,
+            "file_type": Path(path).suffix.lower(),
+            "line_count": len(lines),
         })
         i += CHUNK_SIZE - CHUNK_OVERLAP
     return chunks
 
 
+def parse_pdf(path: str) -> list[dict]:
+    reader = PdfReader(path)
+    chunks = []
+    for page_num, page in enumerate(reader.pages):
+        try:
+            text = page.extract_text() or ""
+            text = text.strip()
+        except Exception:
+            text = ""
+
+        # skip image-only pages
+        if not text:
+            continue
+
+        chunks.append({
+            "path": path,
+            "page": page_num + 1,
+            "total_pages": len(reader.pages),
+            "text": text,
+            "language": None,
+            "category": "document",
+            "file_type": ".pdf",
+        })
+    return chunks
+
+
+def parse_docx(path: str) -> list[dict]:
+    doc = Document(path)
+    paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    chunks = []
+    i = 0
+    while i < len(paragraphs):
+        end = min(i + CHUNK_SIZE, len(paragraphs))
+        chunks.append({
+            "path": path,
+            "start": i,
+            "end": end,
+            "text": "\n".join(paragraphs[i:end]),
+            "language": None,
+            "category": "document",
+            "file_type": ".docx",
+            "paragraph_count": len(paragraphs),
+        })
+        i += CHUNK_SIZE - CHUNK_OVERLAP
+    return chunks
+
+
+def parse_csv(path: str) -> list[dict]:
+    try:
+        df = pd.read_csv(path)
+        shape = df.shape
+        columns = list(df.columns)
+        dtypes = {col: str(dtype) for col, dtype in df.dtypes.items()}
+        preview = df.head(5).to_string(index=False)
+        sample_stats = df.describe(include='all').to_string()
+
+        text = (
+            f"CSV File: {Path(path).name}\n"
+            f"Shape: {shape[0]} rows x {shape[1]} columns\n"
+            f"Columns: {', '.join(columns)}\n"
+            f"Types:\n{json.dumps(dtypes, indent=2)}\n\n"
+            f"Preview (first 5 rows):\n{preview}\n\n"
+            f"Stats:\n{sample_stats}"
+        )
+        return [{
+            "path": path,
+            "text": text,
+            "language": None,
+            "category": "data",
+            "file_type": ".csv",
+            "row_count": shape[0],
+            "col_count": shape[1],
+            "columns": columns,
+        }]
+    except Exception as e:
+        return [{
+            "path": path,
+            "text": f"CSV parse error: {e}",
+            "language": None,
+            "category": "data",
+            "file_type": ".csv",
+        }]
+
+
+
+def parse_ipynb(path: str) -> list[dict]:
+    nb = nbformat.read(open(path), as_version=4)
+    chunks = []
+    for i, cell in enumerate(nb.cells):
+        source = cell.source.strip()
+        if not source:
+            continue
+        cell_type = cell.cell_type  # Code or Markdown
+        chunks.append({
+            "path": path,
+            "cell_index": i,
+            "cell_type": cell_type,
+            "text": f"[Cell {i} - {cell_type}]\n{source}",
+            "language": "python" if cell_type == "code" else "markdown",
+            "category": "notebook",
+            "file_type": ".ipynb",
+            "total_cells": len(nb.cells),
+        })
+    return chunks
+
+
+# Router
+def parse_file(path: str) -> list[dict]:
+    ext = Path(path).suffix.lower()
+    if ext == ".pdf":
+        return parse_pdf(path)
+    elif ext == ".docx":
+        return parse_docx(path)
+    elif ext == ".csv":
+        return parse_csv(path)
+    elif ext == ".ipynb":
+        return parse_ipynb(path)
+    else:
+        return parse_text(path)
+
+
+# Indexing
 def embed(texts: list[str]) -> np.ndarray:
     return EMBED_MODEL.encode(texts, convert_to_numpy=True).astype("float32")
 
 
 def index_file(filename: str, filepath: str):
-    chunks = chunk_file(filepath)
+    chunks = parse_file(filepath)
     if not chunks:
         return
     texts = [c["text"] for c in chunks]
@@ -72,16 +219,44 @@ def index_file(filename: str, filepath: str):
     faiss.write_index(index, str(VECTOR_DIR / f"{stem}.index"))
     (VECTOR_DIR / f"{stem}.meta.json").write_text(json.dumps(chunks, indent=2))
 
+
 def get_file_language(filename: str) -> str | None:
     stem = Path(filename).stem
     meta_path = VECTOR_DIR / f"{stem}.meta.json"
     if not meta_path.exists():
         return None
-    chunks = json.load(meta_path.read_text())
+    with open(meta_path, "r") as f:
+        chunks = json.load(f)
     if chunks:
-        return chunks[0]["language"]
+        return chunks[0].get("language")
     return None
 
+
+def get_file_metadata(filename: str) -> dict:
+    stem = Path(filename).stem
+    meta_path = VECTOR_DIR / f"{stem}.meta.json"
+    if not meta_path.exists():
+        return {}
+    with open(meta_path, "r") as f:
+        chunks = json.load(f)
+    if not chunks:
+        return {}
+    first = chunks[0]
+    return {
+        "language": first.get("language"),
+        "category": first.get("category"),
+        "file_type": first.get("file_type"),
+        "chunk_count": len(chunks),
+        "total_pages": first.get("total_pages"),
+        "row_count": first.get("row_count"),
+        "col_count": first.get("col_count"),
+        "columns": first.get("columns"),
+        "total_cells": first.get("total_cells"),
+        "line_count": first.get("line_count"),
+    }
+
+
+# Search
 def search(query: str, filename: str, top_k: int = 3) -> list[dict]:
     stem = Path(filename).stem
     index_path = VECTOR_DIR / f"{stem}.index"

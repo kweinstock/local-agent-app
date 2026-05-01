@@ -10,6 +10,8 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from starlette.responses import FileResponse
+
 from backend.llm import generate_with_stream, llm_stream
 from backend.skills import build_skill_index
 from backend.embeddings import index_file
@@ -24,6 +26,9 @@ HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 UPLOAD_DIR = Path("data/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+WORKSPACE_DIR = Path("data/workspace")
+WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_conversations():
@@ -128,6 +133,37 @@ def get_stats():
 @app.post("/skills/rebuild")
 def rebuild_skills():
     build_skill_index()
+    return {"ok": True}
+
+
+@app.get("/workspace")
+def list_workspace():
+    if not WORKSPACE_DIR.exists():
+        return []
+    return [
+        {
+            "filename": f.name,
+            "size_kb": round(f.stat().st_size / 1024, 1),
+            "ext": f.suffix.lower(),
+        }
+        for f in sorted(WORKSPACE_DIR.iterdir()) if f.is_file()
+    ]
+
+
+@app.get("/workspace/{filename}")
+def download_workspace_file(filename: str):
+    file_path = WORKSPACE_DIR / filename
+    if not file_path.exists():
+        return {"error": "File not found"}
+    return FileResponse(path=str(file_path), filename=filename)
+
+
+@app.delete("/workspace/{filename}")
+def delete_workspace_file(filename: str):
+    file_path = WORKSPACE_DIR / filename
+    if not file_path.exists():
+        return {"ok": False, "error": "File not found"}
+    file_path.unlink()
     return {"ok": True}
 
 

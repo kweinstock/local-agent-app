@@ -1,120 +1,150 @@
-# Local Coding Assistant Tools Planner - Phase 3
+# Local Coding Assistant - Phase 4: Quality & Reliability
 
-## 1. File Type Support
-Expand `read_file` and `index_file` to handle:
+## 1. Model Swap — Qwen2.5-Coder-7B (Highest Leverage)
+The single biggest improvement available. Same size, same format, same prompt
+template as current model. Fine-tuned specifically on code and tool calling.
+Fixes placeholder code, bad tool calls, and quote errors at the source.
 
-**Code files** (already work, just need skills):
-- `.py`, `.ts`, `.tsx`, `.js`, `.jsx`
-- `.cs`, `.java`, `.cpp`, `.c`, `.h`
-- `.html`, `.css`, `.json`, `.yaml`, `.toml`, `.md`
+**Change in `config.py`:**
+- Swap model filename to `qwen2.5-coder-7b-instruct-q4_k_m.gguf`
+- Zero other changes needed
 
-**Rich files (need new parsers):**
-- `.ipynb` — extract cells (code + markdown separately)
-- `.pdf` — extract text per page
-- `.docx` — extract paragraphs
-- `.csv` — preview + shape info
-
-**Metadata to store per file:**
-- detected language
-- file type category (code, notebook, document, data)
-- line count / page count
+**Test with 5 standard prompts before and after:**
+1. "write a hangman game in python and save it"
+2. "read app.tsx and summarize what it does"
+3. paste a syntax error, say "fix this"
+4. "write a fibonacci function, test it, save it"
+5. "what files do I have"
 
 ---
 
-## 2. New Tools
+## 2. Grammar Sampling — Force Valid Tool Calls
+Constrain model output so it physically cannot produce malformed tool calls.
+Eliminates the entire class of JSON parse failures, hallucinated tool names,
+and raw tool call leaks without any prompt engineering.
 
-**`list_files`**
-- Show all uploaded files with type, size, language
-- Model calls this first when user says "look at my project"
+**In `llm.py`:**
+- Use llama-cpp-python `grammar` parameter on tool-detection calls
+- Define a GBNF grammar that only allows valid TOOL/ARGS format
+- Switch to unconstrained generation for final answer streaming
+- Only applies during tool selection phase, not content generation
 
-**`write_file`**
-- Create or overwrite a file in workspace
-- Args: filename, content
-- Saves to `data/workspace/`
-
-**`search_files`**
-- Search across all uploaded files for a symbol, function, pattern
-- Args: query, optional filename filter
-
-**`run_code`**
-- Replace `run_python` with language-aware execution
-- Detect language from file extension or explicit arg
-- Support: Python, JavaScript (node), TypeScript (ts-node)
-- C, C++, C#, Java — compile then run
+**Eliminates:**
+- write_file JSON parse failures
+- Hallucinated tool names like `write_typescript_method`
+- Raw tool calls leaking as final assistant message
 
 ---
 
-## 3. File Save from UI
+## 3. Context Window Management
+Model loses coherence on large tasks. Tool results eat context fast.
 
-**Backend:**
-- `GET /workspace` — list created files
-- `GET /workspace/{filename}` — download file
-- `DELETE /workspace/{filename}` — delete file
-
-**Frontend:**
-- Download button on assistant messages that contain code blocks
-- Workspace panel in sidebar alongside uploaded files
-- Save button that calls `write_file` tool directly
+**In `llm.py`:**
+- Add `estimate_tokens(prompt)` — rough char/4 estimate
+- If estimated tokens > 80% of n_ctx, trim oldest tool result messages first
+- Keep user/assistant pairs, drop intermediate tool results
+- Compress used tool results to one-line summaries in history
+- Dynamically reduce MAX_HISTORY when prompt is large
 
 ---
 
-## 4. Language Skills (Complete)
+## 4. Syntax Validation on write_file
+Model saves broken files silently. User discovers the error only when running.
 
-One `.md` skill file per language:
-
-**`typescript.md`** — types, interfaces, async/await, imports  
-**`javascript.md`** — modern ES6+, avoid common pitfalls  
-**`csharp.md`** — classes, LINQ, async patterns, namespaces  
-**`java.md`** — OOP patterns, streams, exceptions  
-**`cpp.md`** — memory management, pointers, RAII  
-**`c.md`** — manual memory, structs, header files  
-**`html.md`** — semantic markup, accessibility  
-
-**Skill matching improvement:**
-- Tag each skill with file extensions
-- When a file is uploaded, force-match its language skill
-- Inject matched skill even if query text doesn't trigger it
+**In `tools.py` `write_file`:**
+- Run `ast.parse` on all `.py` files before saving
+- For `.ts`/`.js` files use a basic brace/bracket balance check
+- If validation fails, return error with line number and description
+- Model must fix and retry before file is saved
+- Never save a file that fails validation
 
 ---
 
-## 5. Language Detection
+## 5. Implementation Quality Skill
+Model writes skeleton code with `pass`, placeholder comments, and incomplete logic.
 
-On file upload in `embeddings.py`:
-- Detect language from extension
-- Store in chunk metadata
-- Pass to system prompt as: `Working language: TypeScript`
+**New `implementation.md` skill:**
+- Never use `pass` as a method body unless explicitly asked for a stub
+- Never write placeholder comments like `# implementation here`
+- Every method must have working logic
+- Test with `run_python` before calling `write_file`
+- If a file has more than one function, verify all of them before saving
 
-On message in `llm.py`:
-- Scan recent convo for uploaded file context
-- Inject detected language into prompt header
-- Lock skill matching to that language for the session
-
----
-
-## 6. Notebook Support (.ipynb)
-
-Special handling:
-- Parse JSON structure
-- Separate code cells from markdown cells
-- Index each cell individually with cell number metadata
-- Show cell type in search results
+**Add to `BASE_PROMPT`:**
+- "Write complete working implementations. Never use placeholders or stubs."
 
 ---
 
-## 7. PDF Support
+## 6. Encrypted PDF Crash Fix
+Server hard crashes on encrypted PDFs. Should never happen.
 
-- Extract text per page using `pypdf` or `pdfplumber`
-- Index page by page instead of line by line
-- Store page number in chunk metadata
-- Handle scanned PDFs gracefully (flag as image-based, skip)
+**In `embeddings.py` `parse_pdf`:**
+- Catch `pypdf.errors.FileNotDecryptedError` and all PDF exceptions
+- Return a single chunk flagging the file as encrypted/unreadable
+- Log the error server-side
+- Never let a bad file crash the server
+
+---
+
+## 7. Multi-File Awareness
+Model loses track of what files exist across a session and writes files that
+import others without verifying those others exist.
+
+**In `llm.py` `build_system_prompt`:**
+- When any files exist in uploads or workspace, inject a compact file list
+  into the system prompt header automatically
+- Format: `Available files: hangman.py [workspace], App.tsx [uploaded]`
+- Model always knows what exists without needing to call list_files first
+- When creating a file that imports another, model checks list before writing
+
+---
+
+## 8. append_file Tool
+Large files hit token limits mid-write and get truncated. Splitting into
+write + append avoids the problem without needing larger token budgets.
+
+**New tool in `tools.py`:**
+- `append_file(filename, content)` — appends to existing workspace file
+- Same validation as write_file
+- Model uses write_file for the first section, append_file for the rest
+- Add to TOOL descriptions so model knows when to use it
+
+---
+
+## 9. Better Error Recovery
+Model loops on the same failing tool call or gives up without explanation.
+
+**In `llm.py`:**
+- Track tool call history per session — name + args hash
+- If identical tool call appears twice, inject: "This call already failed.
+  Try a different approach or explain what is blocking you."
+- On EXECUTION FAILED, model must read the error before retrying
+- Max 2 retries per unique tool call, then surface a clear explanation
+
+---
+
+## 10. Dynamic Token Budget
+Model does not know how large its output budget is and truncates silently.
+
+**In `llm.py`:**
+- Estimate file size before generation starts
+- For large write_file tasks, tell the model the approximate line count
+  expected and set max_tokens accordingly
+- Small responses (tool calls, short answers): 256 tokens
+- Medium responses (explanations, short files): 512 tokens  
+- Large responses (full file writes): 1024 tokens
+- Set dynamically based on task type detected from query
 
 ---
 
 ## Priority Order
-
-1. PDF + ipynb parsers (highest impact, you likely have these now)
-2. `write_file` tool + workspace UI (core coding assistant feature)
-3. Language skills (low effort, high model quality gain)
-4. `list_files` + `search_files` tools
-5. `run_code` language expansion
-6. Language detection + skill locking
+1. Model swap to Qwen2.5-Coder-7B — zero code change, biggest quality jump
+2. Grammar sampling — eliminates tool call failures permanently
+3. Syntax validation on write_file — stops broken files being saved
+4. Implementation quality skill — fixes placeholder code pattern
+5. Context window management — fixes long session degradation
+6. Encrypted PDF crash fix — server stability
+7. Multi-file awareness — fixes cross-file confusion
+8. Dynamic token budget — fixes silent truncation
+9. append_file tool — fixes large file truncation
+10. Better error recovery — fixes looping behavior

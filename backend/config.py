@@ -15,12 +15,12 @@ TIER_CONFIG = {
         "n_batch": 64,
     },
     "medium": {
-        "model":   "qwen-2.5-7B-instruct-gguf-Q4-K-M.gguf",
+        "model":   "qqwen2.5-coder-7b-instruct-q4_k_m.gguf",
         "n_ctx":   8192,
         "n_batch": 128,
     },
     "high": {
-        "model":   "qwen-2.5-7B-instruct-gguf-Q4-K-M.gguf",
+        "model":   "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
         "n_ctx":   32768,
         "n_batch": 256,
     },

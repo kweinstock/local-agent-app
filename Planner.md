@@ -7,6 +7,7 @@ Fixes placeholder code, bad tool calls, and quote errors at the source.
 
 **Change in `config.py`:**
 - Swap model filename to `qwen2.5-coder-7b-instruct-q4_k_m.gguf`
+- [Qwen 2.5 coder, 7B Q4](https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/blob/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf)
 - Zero other changes needed
 
 **Test with 5 standard prompts before and after:**
